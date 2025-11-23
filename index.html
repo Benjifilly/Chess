@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Échecs Duo</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <!-- Supabase & Chess.js & Confetti -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <script src="config.js"></script>
+</head>
+<body>
+
+    <!-- Login Screen -->
+    <div id="login-screen">
+        <div class="login-container">
+            <h1>Échecs Duo</h1>
+            <p>Qui es-tu ?</p>
+            <input type="password" id="password-input" placeholder="Code secret" autocomplete="off">
+            <button id="login-btn">Entrer</button>
+            <p id="login-error" class="error"></p>
+        </div>
+    </div>
+
+    <!-- New Game Modal -->
+    <div id="new-game-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2>Nouvelle Partie</h2>
+            <p>Choisis ta couleur :</p>
+            <div class="color-choices">
+                <div class="color-option" onclick="selectColor('white')" id="opt-white">
+                    <img src="pièces/set1/white-king.png" alt="Blancs">
+                </div>
+                <div class="color-option" onclick="selectColor('random')" id="opt-random">
+                    <div class="half-icon">
+                        <img src="pièces/set1/white-king.png" class="left-half">
+                        <img src="pièces/set1/black-king.png" class="right-half">
+                    </div>
+                </div>
+                <div class="color-option" onclick="selectColor('black')" id="opt-black">
+                    <img src="pièces/set1/black-king.png" alt="Noirs">
+                </div>
+            </div>
+            <button id="start-game-btn" onclick="confirmNewGame()" disabled>Jouer</button>
+            <button class="cancel-btn" onclick="closeModal('new-game-modal')">Annuler</button>
+        </div>
+    </div>
+
+    <!-- Settings Modal (Themes) -->
+    <div id="settings-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2>Thèmes</h2>
+            <div class="theme-options" style="flex-wrap: wrap;">
+                <div class="theme-btn" style="background: linear-gradient(135deg, #1a1a1a 50%, #769656 50%);" onclick="setTheme('dark')" title="Classique (Vert)"></div>
+                <div class="theme-btn" style="background: linear-gradient(135deg, #2c241b 50%, #B58863 50%);" onclick="setTheme('brown')" title="Marron"></div>
+                <div class="theme-btn" style="background: linear-gradient(135deg, #FFF8E7 50%, #F0D9B5 50%);" onclick="setTheme('light')" title="Clair"></div>
+                <div class="theme-btn" style="background: linear-gradient(135deg, #1a2639 50%, #4a90e2 50%);" onclick="setTheme('ocean')" title="Océan"></div>
+                <div class="theme-btn" style="background: linear-gradient(135deg, #1e2b1e 50%, #4caf50 50%);" onclick="setTheme('forest')" title="Forêt"></div>
+                <div class="theme-btn" style="background: linear-gradient(135deg, #3d2b31 50%, #ec407a 50%);" onclick="setTheme('rose')" title="Rose"></div>
+                <div class="theme-btn" style="background: conic-gradient(from 0deg, red, yellow, lime, aqua, blue, magenta, red);" onclick="toggleCustomTheme()" title="Personnalisé"></div>
+            </div>
+
+            <!-- Custom Theme Builder -->
+            <div id="custom-theme-builder" class="custom-theme-builder">
+                <div class="color-input-group">
+                    <label>Fond</label>
+                    <input type="color" id="custom-bg" value="#2c241b" onchange="applyCustomTheme()">
+                </div>
+                <div class="color-input-group">
+                    <label>Plateau (Clair)</label>
+                    <input type="color" id="custom-board-light" value="#F0D9B5" onchange="applyCustomTheme()">
+                </div>
+                <div class="color-input-group">
+                    <label>Plateau (Foncé)</label>
+                    <input type="color" id="custom-board-dark" value="#B58863" onchange="applyCustomTheme()">
+                </div>
+                <div class="color-input-group">
+                    <label>Accent</label>
+                    <input type="color" id="custom-accent" value="#88B04B" onchange="applyCustomTheme()">
+                </div>
+            </div>
+
+            <button class="cancel-btn" onclick="closeModal('settings-modal')">Fermer</button>
+        </div>
+    </div>
+
+    <!-- Game Over Modal -->
+    <div id="game-over-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="winner-icon">
+                <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent);"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>
+            </div>
+            <h2 id="game-over-title">Partie Terminée</h2>
+            <p id="game-over-message">...</p>
+            <button onclick="openNewGameModal()">Rejouer</button>
+            <button class="cancel-btn" onclick="closeModal('game-over-modal')">Fermer</button>
+        </div>
+    </div>
+
+    <!-- Game Screen -->
+    <div id="game-screen" class="hidden">
+        <!-- Settings Button (Fixed Top-Right) -->
+        <div class="settings-fixed-container">
+            <button class="settings-btn" onclick="toggleDropdown()">⋮</button>
+            <div id="settings-dropdown" class="dropdown">
+                <div class="dropdown-item" onclick="openSettings()">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="10.5" r="2.5"/><circle cx="8.5" cy="7.5" r="2.5"/><circle cx="6.5" cy="12.5" r="2.5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>
+                    Thèmes
+                </div>
+                <div class="dropdown-divider"></div>
+                <div class="dropdown-item" onclick="logout()" style="color: #ff6b6b;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                    Se déconnecter
+                </div>
+            </div>
+        </div>
+
+        <header>
+            <div class="player-status opponent">
+                <span id="opponent-name">Adversaire</span>
+                <div class="indicator" id="opponent-indicator"></div>
+            </div>
+        </header>
+
+        <div id="board-container">
+            <div id="board">
+                <!-- Grid generated by JS -->
+            </div>
+        </div>
+
+        <footer>
+            <div class="player-status me">
+                <span id="my-name">Moi</span>
+                <div class="indicator" id="my-indicator"></div>
+            </div>
+            <div class="controls">
+                <button id="reset-btn">Nouvelle Partie</button>
+                <button id="flip-btn">Retourner</button>
+            </div>
+            <p id="game-status">En attente...</p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

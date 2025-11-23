@@ -1,0 +1,21 @@
+{
+  "name": "Échecs Benji & Sanaa",
+  "short_name": "Échecs",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#1a1a1a",
+  "theme_color": "#1a1a1a",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "pièces/set1/white-king.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "pièces/set1/white-king.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
