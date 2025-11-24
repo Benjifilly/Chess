@@ -41,11 +41,16 @@ const startGameBtn = document.getElementById('start-game-btn');
 const settingsDropdown = document.getElementById('settings-dropdown');
 
 // --- INIT & LOGIN ---
-// Attendre que tout soit chargé
-window.addEventListener('DOMContentLoaded', () => {
-    console.log('DOM chargé');
+// S'assurer que l'appli s'initialise même si DOMContentLoaded est déjà passé
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        console.log('DOM chargé (event)');
+        initializeApp();
+    });
+} else {
+    console.log('DOM déjà prêt');
     initializeApp();
-});
+}
 
 function initializeApp() {
     try {
@@ -247,13 +252,24 @@ async function confirmNewGame() {
 
 async function initGame() {
     console.log('initGame appelé');
+
+    // 1. Afficher le plateau TOUT DE SUITE (Optimistic UI)
+    if (!game) game = new Chess();
+    // Définir une couleur par défaut si pas encore définie
+    if (!myColor) myColor = myName === 'Benji' ? 'w' : 'b';
+    boardFlipped = (myColor === 'b');
+    
+    console.log('Affichage immédiat du plateau (avant synchro)...');
+    renderBoard();
+    updateStatus();
     
     let data = null;
     let error = null;
     
-    // Charger l'état actuel depuis Supabase
+    // 2. Charger l'état réel depuis Supabase
     if (supabaseClient) {
         try {
+            console.log('Tentative de connexion Supabase...');
             const response = await supabaseClient
                 .from('chess_state')
                 .select('*')
@@ -261,6 +277,7 @@ async function initGame() {
                 .single();
             data = response.data;
             error = response.error;
+            console.log('Réponse Supabase reçue:', data);
         } catch (e) {
             console.error('Erreur Supabase:', e);
             error = e;
@@ -270,12 +287,7 @@ async function initGame() {
     if (data) {
         updateGameState(data);
     } else {
-        console.warn("Aucune donnée trouvée ou erreur Supabase:", error);
-        // Initialisation par défaut si pas de données
-        if (!myColor) myColor = myName === 'Benji' ? 'w' : 'b';
-        boardFlipped = (myColor === 'b');
-        renderBoard();
-        updateStatus();
+        console.warn("Aucune donnée trouvée ou erreur Supabase (utilisation du plateau local):", error);
     }
 
     // Écouter les changements en temps réel
@@ -293,7 +305,7 @@ async function initGame() {
     }
 }
 
-function updateGameState(data) {
+function updateGameState(data = {}) {
     const newFen = data.fen;
     const whitePlayer = data.white_player;
 
@@ -313,14 +325,31 @@ function updateGameState(data) {
     const oldFlipped = boardFlipped;
     boardFlipped = (myColor === 'b');
 
-    if (newFen !== game.fen()) {
-        game.load(newFen);
-        renderBoard();
-        updateStatus();
-    } else if (oldFlipped !== boardFlipped) {
-        renderBoard();
-        updateStatus();
-    } else if (boardEl.innerHTML.trim() === '') {
+    let needsRender = false;
+
+    if (!newFen) {
+        game.reset();
+        needsRender = true;
+    } else if (newFen !== game.fen()) {
+        try {
+            game.load(newFen);
+            needsRender = true;
+        } catch (err) {
+            console.error('FEN invalide reçue, reset local:', err);
+            game.reset();
+            needsRender = true;
+        }
+    }
+
+    if (!needsRender && oldFlipped !== boardFlipped) {
+        needsRender = true;
+    }
+
+    if (!needsRender && boardEl.innerHTML.trim() === '') {
+        needsRender = true;
+    }
+
+    if (needsRender) {
         renderBoard();
         updateStatus();
     }
@@ -640,7 +669,16 @@ document.getElementById('reset-btn').addEventListener('click', () => {
     openNewGameModal();
 });
 
-// Service Worker Registration
-if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
-    navigator.serviceWorker.register('sw.js');
+// Service Worker Registration (disabled on localhost/dev to avoid stale caches)
+const isLocalhost = ['localhost', '127.0.0.1', ''].includes(window.location.hostname) || window.location.protocol === 'file:';
+const shouldRegisterSW = 'serviceWorker' in navigator && window.location.protocol === 'https:' && !isLocalhost;
+
+if (shouldRegisterSW) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js').catch(err => {
+            console.error('Service Worker registration failed:', err);
+        });
+    });
+} else {
+    console.info('Service Worker not registered (dev / non-HTTPS context).');
 }
