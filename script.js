@@ -360,7 +360,7 @@ function onSquareClick(square) {
     // Si je clique sur une de mes pièces, je la sélectionne
     if (piece && piece.color === myColor) {
         selectedSquare = square;
-        renderBoard();
+        highlightMoves(square); // Use lightweight highlight to avoid flickering
     } 
     // Si j'ai déjà sélectionné une pièce et que je clique ailleurs (géré par les hints onclick, mais au cas où)
     else if (selectedSquare) {
