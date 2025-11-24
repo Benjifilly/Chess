@@ -486,8 +486,8 @@ header {
 }
 
 footer {
-    padding: 8px 15px;
-    padding-bottom: calc(10px + env(safe-area-inset-bottom));
+    padding: 15px 15px;
+    padding-bottom: calc(25px + env(safe-area-inset-bottom));
     background: transparent;
     flex-shrink: 0;
 }
@@ -526,7 +526,7 @@ footer {
     display: flex;
     justify-content: center;
     align-items: center;
-    padding: 5px 10px;
+    padding: 8px 10px;
     min-height: 0;
     overflow: hidden;
 }
@@ -536,7 +536,7 @@ footer {
     grid-template-columns: repeat(8, 1fr);
     grid-template-rows: repeat(8, 1fr);
     width: 100%;
-    max-width: 450px;
+    max-width: 500px;
     aspect-ratio: 1 / 1;
     border: 4px solid var(--board-dark);
     border-radius: 8px;
@@ -654,20 +654,20 @@ footer {
 .controls {
     display: flex;
     gap: 10px;
-    margin-top: 8px;
+    margin-top: 12px;
 }
 
 .controls button {
     background: var(--card-bg);
     color: var(--text-color);
     font-size: 13px;
-    padding: 8px 12px;
+    padding: 10px 14px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
 
 #game-status {
     text-align: center;
-    margin-top: 8px;
+    margin-top: 10px;
     font-size: 13px;
     color: var(--text-color);
     opacity: 0.7;
