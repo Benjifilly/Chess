@@ -107,26 +107,26 @@
 
     <!-- Game Screen -->
     <div id="game-screen" class="hidden">
-        <!-- Settings Button (Fixed Top-Right) -->
-        <div class="settings-fixed-container">
-            <button class="settings-btn" onclick="toggleDropdown()">⋮</button>
-            <div id="settings-dropdown" class="dropdown">
-                <div class="dropdown-item" onclick="openSettings()">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="10.5" r="2.5"/><circle cx="8.5" cy="7.5" r="2.5"/><circle cx="6.5" cy="12.5" r="2.5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>
-                    Thèmes
-                </div>
-                <div class="dropdown-divider"></div>
-                <div class="dropdown-item" onclick="logout()" style="color: #ff6b6b;">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-                    Se déconnecter
-                </div>
-            </div>
-        </div>
-
         <header>
             <div class="player-status opponent">
                 <span id="opponent-name">Adversaire</span>
                 <div class="indicator" id="opponent-indicator"></div>
+            </div>
+
+            <!-- Settings Button (Moved inside Header) -->
+            <div class="settings-fixed-container">
+                <button class="settings-btn" onclick="toggleDropdown()">⋮</button>
+                <div id="settings-dropdown" class="dropdown">
+                    <div class="dropdown-item" onclick="openSettings()">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="10.5" r="2.5"/><circle cx="8.5" cy="7.5" r="2.5"/><circle cx="6.5" cy="12.5" r="2.5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>
+                        Thèmes
+                    </div>
+                    <div class="dropdown-divider"></div>
+                    <div class="dropdown-item" onclick="logout()" style="color: #ff6b6b;">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                        Se déconnecter
+                    </div>
+                </div>
             </div>
         </header>
 

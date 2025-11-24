@@ -250,9 +250,7 @@ button:hover {
 
 /* Settings Button & Dropdown */
 .settings-fixed-container {
-    position: fixed;
-    top: calc(45px + env(safe-area-inset-top));
-    right: 20px;
+    position: relative;
     z-index: 1000;
 }
 
@@ -467,7 +465,7 @@ header {
     justify-content: space-between;
     align-items: center;
     padding: 15px 20px;
-    padding-top: calc(40px + env(safe-area-inset-top));
+    padding-top: calc(20px + env(safe-area-inset-top));
     background: transparent;
 }
 
