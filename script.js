@@ -680,5 +680,10 @@ if (shouldRegisterSW) {
         });
     });
 } else {
-    console.info('Service Worker not registered (dev / non-HTTPS context).');
+    // Désinscrire tout SW existant en dev pour éviter les erreurs de fetch
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(registrations => {
+            registrations.forEach(reg => reg.unregister());
+        });
+    }
 }

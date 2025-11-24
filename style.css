@@ -487,7 +487,7 @@ header {
 
 footer {
     padding: 15px 15px;
-    padding-bottom: calc(25px + env(safe-area-inset-bottom));
+    padding-bottom: calc(35px + env(safe-area-inset-bottom));
     background: transparent;
     flex-shrink: 0;
 }
@@ -536,7 +536,7 @@ footer {
     grid-template-columns: repeat(8, 1fr);
     grid-template-rows: repeat(8, 1fr);
     width: 100%;
-    max-width: 500px;
+    max-width: 550px;
     aspect-ratio: 1 / 1;
     border: 4px solid var(--board-dark);
     border-radius: 8px;
@@ -675,53 +675,147 @@ footer {
 }
 
 /* Desktop Adaptation */
-@media (min-width: 768px) {
+@media (min-width: 1024px) {
+    body {
+        background-image: radial-gradient(circle at center, rgba(255,255,255,0.03) 0%, rgba(0,0,0,0.1) 100%);
+    }
+
     #game-screen {
-        flex-direction: row;
-        align-items: center;
+        display: grid;
+        grid-template-columns: auto 320px;
+        grid-template-rows: min-content min-content; /* Tight fit for sidebar */
+        gap: 20px;
         justify-content: center;
-        gap: 60px;
+        align-content: center;
+        padding: 40px;
+        max-width: 1400px;
+        margin: 0 auto;
     }
     
-    header {
-        order: 3; /* Right side */
-        align-items: flex-start;
-        background: transparent;
-        width: 330px;
-        display: flex;
-        flex-direction: column;
-        padding-top: calc(120px + env(safe-area-inset-top));
-        gap: 20px;
-    }
-    
-    footer {
-        order: 1; /* Left side */
-        align-items: flex-end;
-        background: transparent;
-        width: 300px;
-        display: flex;
-        padding-top: 0px;
-        flex-direction: column;
-        gap: 20px;
-    }
-    
+    /* Board Area */
     #board-container {
-        order: 2;
-        flex: none;
-        width: 600px;
-        height: 600px;
+        grid-column: 1;
+        grid-row: 1 / span 2;
+        width: 80vh;
+        height: 80vh;
+        max-width: 700px;
+        max-height: 700px;
+        padding: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
     }
 
     #board {
+        width: 100%;
         max-width: 100%;
-        border-width: 12px;
+        border-width: 15px;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+
+    /* Sidebar Panels */
+    header, footer {
+        background: var(--card-bg);
+        padding: 25px;
+        border-radius: 24px;
+        box-shadow: var(--shadow);
+        border: 1px solid rgba(255,255,255,0.05);
+        width: 100%;
+        backdrop-filter: blur(10px);
+    }
+
+    /* Top Panel: Opponent & Settings */
+    header {
+        grid-column: 2;
+        grid-row: 1;
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+        height: auto;
+        padding-top: 25px;
+        gap: 15px;
+        z-index: 20; /* Ensure dropdown appears above footer */
+        position: relative;
+    }
+
+    /* Bottom Panel: Me, Controls, Status */
+    footer {
+        grid-column: 2;
+        grid-row: 2;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        padding-top: 25px;
+        justify-content: flex-start;
+        z-index: 10;
+    }
+
+    /* Reset Mobile Styles */
+    .player-status {
+        background: transparent;
+        box-shadow: none;
+        padding: 0;
+        min-width: 0;
+        font-size: 1.1rem;
+    }
+
+    .settings-fixed-container {
+        position: static;
+    }
+
+    .settings-btn {
+        width: 40px;
+        height: 40px;
+        font-size: 18px;
+        background: rgba(0,0,0,0.2);
+        border: none;
+        box-shadow: none;
     }
     
-    .settings-btn {
-        position: absolute;
-        top: 30px;
-        right: 30px;
-        font-size: 30px;
+    .settings-btn:hover {
+        background: rgba(0,0,0,0.3);
+    }
+
+    .controls {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        margin-top: 0;
+    }
+
+    .controls button {
+        width: 100%;
+        border-radius: 12px;
+        padding: 12px;
+        font-size: 0.95rem;
+        box-shadow: none;
+        background: rgba(0,0,0,0.2);
+        border: 1px solid rgba(255,255,255,0.1);
+    }
+    
+    .controls button:hover {
+        background: var(--accent);
+        border-color: transparent;
+    }
+
+    #game-status {
+        margin-top: auto;
+        padding: 15px;
+        background: rgba(0,0,0,0.15);
+        border-radius: 12px;
+        font-size: 0.9rem;
+        line-height: 1.4;
+        text-align: center;
+    }
+    
+    /* Dropdown positioning fix for desktop */
+    .dropdown {
+        top: 100%;
+        right: 0;
+        margin-top: 10px;
+        width: 200px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5);
     }
 }
 
