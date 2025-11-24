@@ -400,7 +400,7 @@ function handleDragEnd(e) {
     sourceSquare = null;
     
     // Clean up hints if no move was made
-    renderBoard();
+    // renderBoard(); // Removed to prevent flickering on tap
 }
 
 function highlightMoves(square) {
@@ -458,7 +458,12 @@ async function makeMove(from, to) {
             .eq('id', GAME_ID);
     } else {
         selectedSquare = null;
-        renderBoard();
+        // renderBoard(); // Optimized to avoid flickering
+        document.querySelectorAll('.square').forEach(sq => {
+            sq.classList.remove('selected', 'capture-hint');
+            const hint = sq.querySelector('.hint');
+            if (hint) hint.remove();
+        });
     }
 }
 
