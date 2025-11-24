@@ -1,5 +1,5 @@
 // Configuration Supabase
-const supabase = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
+let supabaseClient = null;
 
 // Configuration Jeu
 const GAME_ID = CONFIG.GAME_ID; // ID unique pour la partie
@@ -8,7 +8,7 @@ const PLAYERS = {
     'SANAA1': 'Sanaa'
 };
 
-let game = new Chess();
+let game = null;
 let myColor = null; // 'w' or 'b'
 let myName = null;
 let selectedSquare = null;
@@ -41,8 +41,33 @@ const startGameBtn = document.getElementById('start-game-btn');
 const settingsDropdown = document.getElementById('settings-dropdown');
 
 // --- INIT & LOGIN ---
-checkLogin();
-loadTheme();
+// Attendre que tout soit chargé
+window.addEventListener('DOMContentLoaded', () => {
+    console.log('DOM chargé');
+    initializeApp();
+});
+
+function initializeApp() {
+    try {
+        // Initialiser Chess.js
+        game = new Chess();
+        console.log('Chess.js initialisé:', game);
+        
+        // Initialiser Supabase
+        if (window.supabase && window.supabase.createClient) {
+            const { createClient } = window.supabase;
+            supabaseClient = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
+            console.log('Supabase initialisé');
+        } else {
+            console.warn('Supabase non disponible');
+        }
+        
+        checkLogin();
+        loadTheme();
+    } catch (error) {
+        console.error('Erreur initialisation:', error);
+    }
+}
 
 function checkLogin() {
     const savedCode = localStorage.getItem('chess_user_code');
@@ -202,37 +227,70 @@ async function confirmNewGame() {
     
     game.reset();
     
-    await supabase
-        .from('chess_state')
-        .update({ 
-            fen: game.fen(), 
-            last_move: '',
-            white_player: whitePlayerName
-        })
-        .eq('id', GAME_ID);
+    if (supabaseClient) {
+        try {
+            await supabaseClient
+                .from('chess_state')
+                .update({ 
+                    fen: game.fen(), 
+                    last_move: '',
+                    white_player: whitePlayerName
+                })
+                .eq('id', GAME_ID);
+        } catch (error) {
+            console.error('Erreur Supabase:', error);
+        }
+    }
 }
 
 // --- GAME LOGIC ---
 
 async function initGame() {
+    console.log('initGame appelé');
+    
+    let data = null;
+    let error = null;
+    
     // Charger l'état actuel depuis Supabase
-    const { data, error } = await supabase
-        .from('chess_state')
-        .select('*')
-        .eq('id', GAME_ID)
-        .single();
+    if (supabaseClient) {
+        try {
+            const response = await supabaseClient
+                .from('chess_state')
+                .select('*')
+                .eq('id', GAME_ID)
+                .single();
+            data = response.data;
+            error = response.error;
+        } catch (e) {
+            console.error('Erreur Supabase:', e);
+            error = e;
+        }
+    }
 
     if (data) {
         updateGameState(data);
+    } else {
+        console.warn("Aucune donnée trouvée ou erreur Supabase:", error);
+        // Initialisation par défaut si pas de données
+        if (!myColor) myColor = myName === 'Benji' ? 'w' : 'b';
+        boardFlipped = (myColor === 'b');
+        renderBoard();
+        updateStatus();
     }
 
     // Écouter les changements en temps réel
-    supabase
-        .channel('chess_game')
-        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'chess_state', filter: `id=eq.${GAME_ID}` }, payload => {
-            updateGameState(payload.new);
-        })
-        .subscribe();
+    if (supabaseClient) {
+        try {
+            supabaseClient
+                .channel('chess_game')
+                .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'chess_state', filter: `id=eq.${GAME_ID}` }, payload => {
+                    updateGameState(payload.new);
+                })
+                .subscribe();
+        } catch (error) {
+            console.error('Erreur canal temps réel:', error);
+        }
+    }
 }
 
 function updateGameState(data) {
@@ -260,6 +318,9 @@ function updateGameState(data) {
         renderBoard();
         updateStatus();
     } else if (oldFlipped !== boardFlipped) {
+        renderBoard();
+        updateStatus();
+    } else if (boardEl.innerHTML.trim() === '') {
         renderBoard();
         updateStatus();
     }
@@ -453,10 +514,16 @@ async function makeMove(from, to) {
         updateStatus();
         
         // Envoyer à Supabase
-        await supabase
-            .from('chess_state')
-            .update({ fen: game.fen(), last_move: `${from}-${to}` })
-            .eq('id', GAME_ID);
+        if (supabaseClient) {
+            try {
+                await supabaseClient
+                    .from('chess_state')
+                    .update({ fen: game.fen(), last_move: `${from}-${to}` })
+                    .eq('id', GAME_ID);
+            } catch (error) {
+                console.error('Erreur mise à jour coup:', error);
+            }
+        }
     } else {
         selectedSquare = null;
         // renderBoard(); // Optimized to avoid flickering
