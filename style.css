@@ -465,12 +465,13 @@ header {
     justify-content: space-between;
     align-items: center;
     padding: 15px 20px;
-    padding-top: calc(20px + env(safe-area-inset-top));
+    padding-top: calc(90px + env(safe-area-inset-top)); /* Increased to lower UI on iPhone */
     background: transparent;
 }
 
 footer {
-    padding: 15px 20px;
+    padding: 70px 20px;
+    padding-top: 0px;
     background: transparent;
 }
 
@@ -667,9 +668,10 @@ footer {
         order: 3; /* Right side */
         align-items: flex-start;
         background: transparent;
-        width: 300px;
+        width: 330px;
         display: flex;
         flex-direction: column;
+        padding-top: calc(120px + env(safe-area-inset-top));
         gap: 20px;
     }
     
@@ -679,6 +681,7 @@ footer {
         background: transparent;
         width: 300px;
         display: flex;
+        padding-top: 0px;
         flex-direction: column;
         gap: 20px;
     }

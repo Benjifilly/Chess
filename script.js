@@ -252,17 +252,18 @@ function updateGameState(data) {
     }
 
     // Auto flip board
+    const oldFlipped = boardFlipped;
     boardFlipped = (myColor === 'b');
 
     if (newFen !== game.fen()) {
         game.load(newFen);
         renderBoard();
         updateStatus();
-    } else {
-        // Just re-render to ensure orientation is correct if color changed
+    } else if (oldFlipped !== boardFlipped) {
         renderBoard();
         updateStatus();
     }
+    // Else: Do nothing to avoid flickering (re-render) when Supabase confirms our own move
 }
 
 function renderBoard() {
@@ -573,6 +574,6 @@ document.getElementById('reset-btn').addEventListener('click', () => {
 });
 
 // Service Worker Registration
-if ('serviceWorker' in navigator) {
+if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
     navigator.serviceWorker.register('sw.js');
 }
