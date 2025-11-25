@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=2">
+    <link rel="stylesheet" href="style.css">
     <!-- Supabase & Chess.js & Confetti via CDN -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
@@ -106,6 +106,17 @@
         </div>
     </div>
 
+    <!-- History Modal -->
+    <div id="history-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2>Historique</h2>
+            <div id="history-list" class="history-container" style="max-height: 300px; overflow-y: auto; margin-bottom: 15px;">
+                <!-- History will be populated here -->
+            </div>
+            <button class="cancel-btn" onclick="closeModal('history-modal')">Fermer</button>
+        </div>
+    </div>
+
     <!-- Game Over Modal -->
     <div id="game-over-modal" class="modal hidden">
         <div class="modal-content">
@@ -136,6 +147,11 @@
                         Thèmes
                     </div>
                     <div class="dropdown-divider"></div>
+                    <div class="dropdown-item" onclick="openHistoryModal()">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/></svg>
+                        Historique
+                    </div>
+                    <div class="dropdown-divider"></div>
                     <div class="dropdown-item" onclick="logout()" style="color: #ff6b6b;">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
                         Se déconnecter
@@ -158,6 +174,9 @@
             <div class="controls">
                 <button id="reset-btn">Nouvelle Partie</button>
                 <button id="flip-btn">Retourner</button>
+            </div>
+            <div id="desktop-history" class="history-container desktop-history">
+                <!-- History will be populated here -->
             </div>
             <p id="game-status">En attente...</p>
         </footer>

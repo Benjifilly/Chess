@@ -679,22 +679,62 @@ footer {
     font-weight: 600;
 }
 
+/* History Styles */
+.history-container {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 10px;
+    padding: 10px;
+    margin-top: 10px;
+    overflow-y: auto;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-content: flex-start;
+    scrollbar-width: thin;
+    scrollbar-color: var(--accent) transparent;
+}
+
+.history-move {
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-color);
+}
+
+.history-move span {
+    opacity: 0.6;
+    margin-right: 4px;
+}
+
+/* Mobile History in Dropdown - Removed */
+
+/* Desktop History (Hidden on Mobile) */
+.desktop-history {
+    display: none;
+}
+
 /* Desktop Adaptation */
 @media (min-width: 1024px) {
     body {
         background-image: radial-gradient(circle at center, rgba(255,255,255,0.03) 0%, rgba(0,0,0,0.1) 100%);
+        justify-content: center; /* Center content vertically */
     }
 
     #game-screen {
         display: grid;
         grid-template-columns: auto 320px;
-        grid-template-rows: min-content minmax(0, 1fr); /* Footer fills space but won't overflow */
+        grid-template-rows: min-content 1fr; /* Header fits content, Footer fills the rest */
         gap: 20px;
         justify-content: center;
         align-content: center;
         padding: 20px;
         max-width: 1400px;
         margin: 0 auto;
+        height: auto; /* Shrink to content height */
+        position: relative; /* Reset fixed position */
+        width: auto;
     }
     
     /* Board Area */
@@ -750,12 +790,21 @@ footer {
         grid-row: 2;
         display: flex;
         flex-direction: column;
-        gap: 15px; /* Reduced gap */
-        padding: 20px; /* Reduced padding */
+        gap: 15px;
+        padding: 20px;
         justify-content: flex-start;
         z-index: 10;
-        overflow-y: auto; /* Scroll if content is too tall */
-        max-height: 82%; /* Ensure it fits in the grid row */
+        overflow-y: auto;
+        height: 100%; /* Fill the grid row completely */
+    }
+
+    /* History Visibility */
+    .desktop-history {
+        display: flex;
+        flex: 1;
+        min-height: 100px;
+        max-height: 300px;
+        border: 1px solid rgba(255,255,255,0.05);
     }
 
     /* Reset Mobile Styles */

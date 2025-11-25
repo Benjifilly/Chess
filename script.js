@@ -196,6 +196,11 @@ function openSettings() {
     settingsModal.classList.remove('hidden');
 }
 
+function openHistoryModal() {
+    settingsDropdown.classList.remove('active');
+    document.getElementById('history-modal').classList.remove('hidden');
+}
+
 function openNewGameModal() {
     closeModal('game-over-modal');
     newGameModal.classList.remove('hidden');
@@ -231,6 +236,20 @@ async function confirmNewGame() {
     }
     
     game.reset();
+
+    // Update local player color based on selection
+    if (whitePlayerName === myName) {
+        myColor = 'w';
+    } else {
+        myColor = 'b';
+    }
+    
+    // Update board orientation
+    boardFlipped = (myColor === 'b');
+    
+    // Render immediately (Optimistic UI)
+    renderBoard();
+    updateStatus();
     
     if (supabaseClient) {
         try {
@@ -239,7 +258,8 @@ async function confirmNewGame() {
                 .update({ 
                     fen: game.fen(), 
                     last_move: '',
-                    white_player: whitePlayerName
+                    white_player: whitePlayerName,
+                    pgn: '' // Reset PGN
                 })
                 .eq('id', GAME_ID);
         } catch (error) {
@@ -307,6 +327,7 @@ async function initGame() {
 
 function updateGameState(data = {}) {
     const newFen = data.fen;
+    const newPgn = data.pgn;
     const whitePlayer = data.white_player;
 
     // Déterminer ma couleur
@@ -327,17 +348,24 @@ function updateGameState(data = {}) {
 
     let needsRender = false;
 
-    if (!newFen) {
+    if (!newFen && !newPgn) {
         game.reset();
         needsRender = true;
-    } else if (newFen !== game.fen()) {
-        try {
-            game.load(newFen);
+    } else {
+        // Prefer PGN for history
+        if (newPgn && newPgn !== game.pgn()) {
+            game.load_pgn(newPgn);
             needsRender = true;
-        } catch (err) {
-            console.error('FEN invalide reçue, reset local:', err);
-            game.reset();
-            needsRender = true;
+        } else if (!newPgn && newFen && newFen !== game.fen()) {
+            // Fallback to FEN
+            try {
+                game.load(newFen);
+                needsRender = true;
+            } catch (err) {
+                console.error('FEN invalide reçue, reset local:', err);
+                game.reset();
+                needsRender = true;
+            }
         }
     }
 
@@ -547,7 +575,11 @@ async function makeMove(from, to) {
             try {
                 await supabaseClient
                     .from('chess_state')
-                    .update({ fen: game.fen(), last_move: `${from}-${to}` })
+                    .update({ 
+                        fen: game.fen(), 
+                        last_move: `${from}-${to}`,
+                        pgn: game.pgn()
+                    })
                     .eq('id', GAME_ID);
             } catch (error) {
                 console.error('Erreur mise à jour coup:', error);
@@ -567,6 +599,9 @@ async function makeMove(from, to) {
 function updateStatus() {
     let status = '';
     let moveColor = game.turn() === 'w' ? 'Blancs' : 'Noirs';
+
+    // Update History UI
+    updateHistoryUI();
 
     // Check for game over conditions
     if (game.in_checkmate()) {
@@ -657,6 +692,31 @@ function triggerConfetti() {
         confetti(Object.assign({}, defaults, { particleCount, origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 } }));
         confetti(Object.assign({}, defaults, { particleCount, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 } }));
     }, 250);
+}
+
+function updateHistoryUI() {
+    const history = game.history();
+    const desktopContainer = document.getElementById('desktop-history');
+    const historyList = document.getElementById('history-list');
+    
+    // Generate HTML
+    let html = '';
+    for (let i = 0; i < history.length; i += 2) {
+        const moveNumber = Math.floor(i / 2) + 1;
+        const whiteMove = history[i];
+        const blackMove = history[i + 1] || '';
+        
+        html += `<div class="history-move"><span>${moveNumber}.</span> ${whiteMove} ${blackMove}</div>`;
+    }
+    
+    if (desktopContainer) {
+        desktopContainer.innerHTML = html;
+        desktopContainer.scrollTop = desktopContainer.scrollHeight;
+    }
+    if (historyList) {
+        historyList.innerHTML = html;
+        historyList.scrollTop = historyList.scrollHeight;
+    }
 }
 
 // Boutons
