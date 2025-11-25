@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=2">
     <!-- Supabase & Chess.js & Confetti via CDN -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
@@ -59,13 +59,27 @@
         <div class="modal-content">
             <h2>Thèmes</h2>
             <div class="theme-options" style="flex-wrap: wrap;">
-                <div class="theme-btn" style="background: linear-gradient(135deg, #1a1a1a 50%, #769656 50%);" onclick="setTheme('dark')" title="Classique (Vert)"></div>
-                <div class="theme-btn" style="background: linear-gradient(135deg, #2c241b 50%, #B58863 50%);" onclick="setTheme('brown')" title="Marron"></div>
-                <div class="theme-btn" style="background: linear-gradient(135deg, #FFF8E7 50%, #F0D9B5 50%);" onclick="setTheme('light')" title="Clair"></div>
-                <div class="theme-btn" style="background: linear-gradient(135deg, #1a2639 50%, #4a90e2 50%);" onclick="setTheme('ocean')" title="Océan"></div>
-                <div class="theme-btn" style="background: linear-gradient(135deg, #1e2b1e 50%, #4caf50 50%);" onclick="setTheme('forest')" title="Forêt"></div>
-                <div class="theme-btn" style="background: linear-gradient(135deg, #3d2b31 50%, #ec407a 50%);" onclick="setTheme('rose')" title="Rose"></div>
-                <div class="theme-btn" style="background: conic-gradient(from 0deg, red, yellow, lime, aqua, blue, magenta, red);" onclick="toggleCustomTheme()" title="Personnalisé"></div>
+                <div class="theme-btn" onclick="setTheme('dark')" title="Classique (Vert)">
+                    <span class="theme-swatch" style="background: linear-gradient(135deg, #1a1a1a 50%, #769656 50%);"></span>
+                </div>
+                <div class="theme-btn" onclick="setTheme('brown')" title="Marron">
+                    <span class="theme-swatch" style="background: linear-gradient(135deg, #2c241b 50%, #B58863 50%);"></span>
+                </div>
+                <div class="theme-btn" onclick="setTheme('light')" title="Clair">
+                    <span class="theme-swatch" style="background: linear-gradient(135deg, #FFF8E7 50%, #F0D9B5 50%);"></span>
+                </div>
+                <div class="theme-btn" onclick="setTheme('ocean')" title="Océan">
+                    <span class="theme-swatch" style="background: linear-gradient(135deg, #1a2639 50%, #4a90e2 50%);"></span>
+                </div>
+                <div class="theme-btn" onclick="setTheme('forest')" title="Forêt">
+                    <span class="theme-swatch" style="background: linear-gradient(135deg, #1e2b1e 50%, #4caf50 50%);"></span>
+                </div>
+                <div class="theme-btn" onclick="setTheme('rose')" title="Rose">
+                    <span class="theme-swatch" style="background: linear-gradient(135deg, #3d2b31 50%, #ec407a 50%);"></span>
+                </div>
+                <div class="theme-btn" onclick="toggleCustomTheme()" title="Personnalisé">
+                    <span class="theme-swatch" style="background: conic-gradient(from 0deg, red, yellow, lime, aqua, blue, magenta, red);"></span>
+                </div>
             </div>
 
             <!-- Custom Theme Builder -->

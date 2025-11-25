@@ -359,36 +359,41 @@ button:hover {
 }
 
 .theme-btn {
-    width: 50px;
-    height: 50px;
+    width: 52px;
+    height: 52px;
     border-radius: 50%;
-    border: 2px solid rgba(255, 255, 255, 0.2);
+    border: 2px solid rgba(255, 255, 255, 0.25);
     cursor: pointer;
     transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), border-color 0.2s, box-shadow 0.2s;
-    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.35);
     position: relative;
-    /* Fix for Safari clipping */
-    -webkit-mask-image: -webkit-radial-gradient(white, black);
-    mask-image: radial-gradient(white, black);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,0,0,0.15);
+    overflow: visible;
+    isolation: isolate;
 }
 
-.theme-btn::after {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
+.theme-btn .theme-swatch {
+    width: 100%;
+    height: 100%;
     border-radius: 50%;
-    box-shadow: inset 0 2px 5px rgba(255,255,255,0.4), inset 0 -2px 5px rgba(0,0,0,0.2);
+    display: block;
+    background-size: cover;
+    background-position: center;
+    position: relative;
+    overflow: hidden;
+    box-shadow: inset 0 2px 5px rgba(255,255,255,0.35), inset 0 -2px 6px rgba(0,0,0,0.3);
     pointer-events: none;
 }
 
-.theme-btn:hover {
-    transform: scale(1.1);
-}
+/* .theme-btn:hover removed */
 
 .theme-btn.selected {
     border-color: var(--accent);
     transform: scale(1.15);
-    box-shadow: 0 0 0 4px rgba(136, 176, 75, 0.3);
+    box-shadow: 0 0 0 4px rgba(136, 176, 75, 0.35);
 }
 
 /* General Fluidity */
@@ -683,11 +688,11 @@ footer {
     #game-screen {
         display: grid;
         grid-template-columns: auto 320px;
-        grid-template-rows: min-content min-content; /* Tight fit for sidebar */
+        grid-template-rows: min-content minmax(0, 1fr); /* Footer fills space but won't overflow */
         gap: 20px;
         justify-content: center;
         align-content: center;
-        padding: 40px;
+        padding: 20px;
         max-width: 1400px;
         margin: 0 auto;
     }
@@ -697,7 +702,8 @@ footer {
         grid-column: 1;
         grid-row: 1 / span 2;
         width: 80vh;
-        height: 80vh;
+        height: auto; /* Let aspect-ratio define height */
+        aspect-ratio: 1 / 1;
         max-width: 700px;
         max-height: 700px;
         padding: 0;
@@ -716,7 +722,6 @@ footer {
     /* Sidebar Panels */
     header, footer {
         background: var(--card-bg);
-        padding: 25px;
         border-radius: 24px;
         box-shadow: var(--shadow);
         border: 1px solid rgba(255,255,255,0.05);
@@ -733,7 +738,7 @@ footer {
         align-items: center;
         justify-content: space-between;
         height: auto;
-        padding-top: 25px;
+        padding: 10px 25px; /* Reduced height further */
         gap: 15px;
         z-index: 20; /* Ensure dropdown appears above footer */
         position: relative;
@@ -745,10 +750,12 @@ footer {
         grid-row: 2;
         display: flex;
         flex-direction: column;
-        gap: 20px;
-        padding-top: 25px;
+        gap: 15px; /* Reduced gap */
+        padding: 20px; /* Reduced padding */
         justify-content: flex-start;
         z-index: 10;
+        overflow-y: auto; /* Scroll if content is too tall */
+        max-height: 82%; /* Ensure it fits in the grid row */
     }
 
     /* Reset Mobile Styles */
@@ -788,7 +795,6 @@ footer {
         width: 100%;
         border-radius: 12px;
         padding: 12px;
-        font-size: 0.95rem;
         box-shadow: none;
         background: rgba(0,0,0,0.2);
         border: 1px solid rgba(255,255,255,0.1);
@@ -807,6 +813,7 @@ footer {
         font-size: 0.9rem;
         line-height: 1.4;
         text-align: center;
+        margin-bottom: 5px; /* Push it slightly lower */
     }
     
     /* Dropdown positioning fix for desktop */
