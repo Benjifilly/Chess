@@ -9,7 +9,7 @@
     <link rel="manifest" href="manifest.json">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
     <!-- Supabase & Chess.js & Confetti via CDN -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -21,11 +21,21 @@
 
     <!-- Login Screen -->
     <div id="login-screen">
+        <div class="login-bg-anim">
+            <span>♟️</span><span>❤️</span><span>♞</span><span>✨</span><span>♝</span><span>😺</span>
+            <span>♛</span><span>🌟</span><span>♜</span><span>💖</span>
+        </div>
         <div class="login-container">
-            <h1>Échecs Duo</h1>
-            <p>Qui es-tu ?</p>
-            <input type="password" id="password-input" placeholder="Code secret" autocomplete="off">
-            <button id="login-btn">Entrer</button>
+            <div class="cute-welcome">
+                <div class="cute-avatar">😽</div>
+                <h2>Coucou mon coeur !!</h2>
+            </div>
+            
+            <div class="input-wrapper">
+                <input type="password" id="password-input" placeholder="Code secret..." autocomplete="off">
+            </div>
+            
+            <button id="login-btn">C'est parti !</button>
             <p id="login-error" class="error"></p>
         </div>
     </div>
@@ -60,8 +70,10 @@
                 </button>
             </div>
 
-            <button id="start-game-btn" onclick="confirmNewGame()" disabled>Jouer</button>
-            <button class="cancel-btn" onclick="closeModal('new-game-modal')">Annuler</button>
+            <div class="modal-actions">
+                <button id="start-game-btn" onclick="confirmNewGame()" disabled>Jouer</button>
+                <button class="cancel-btn" onclick="closeModal('new-game-modal')">Annuler</button>
+            </div>
         </div>
     </div>
 

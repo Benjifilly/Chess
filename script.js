@@ -6,8 +6,8 @@ const GAME_ID = CONFIG.GAME_ID; // ID unique pour la partie
 // Hashes SHA-256 des mots de passe (avec sel)
 const SALT = 'ChessDuo_Salt_2024!';
 const PLAYER_HASHES = {
-    'dd5c0a309a41a54df9b76d390575abb4afedf8034b931ee9c47f6d1074f73b0d': 'Benji',
-    'b14111b6e4eb9d20c0098ca91a6f0ab0a27594179905b34b2f7083f99766b02f': 'Sanaa'
+    '450b02e834204bad2503ee356eeb190e92ad1ada765e69e058e094fa39b45fe0': 'Benji',
+    '97ad62dd650af6c9af2b30df0963a09f40782ff0a4ad8cc976e4ab519e3e1fd9': 'Sanaa'
 };
 
 let game = null;
@@ -193,10 +193,40 @@ loginBtn.addEventListener('click', async () => {
     if (PLAYER_HASHES[hashHex]) {
         const name = PLAYER_HASHES[hashHex];
         localStorage.setItem('chess_user_name', name); // Store name instead of code
-        login(name);
+        
+        // Animation de succès
+        const loginScreen = document.getElementById('login-screen');
+        loginScreen.classList.add('login-success');
+        // triggerConfetti(); // Removed as requested
+
+        // Préparer le jeu en arrière-plan
+        myName = name;
+        myNameEl.textContent = myName;
+        opponentNameEl.textContent = myName === 'Benji' ? 'Sanaa' : 'Benji';
+        gameScreen.classList.remove('hidden'); // Afficher le jeu derrière
+        initGame(); // Initialiser le jeu
+
+        // Attendre la fin de l'animation pour cacher l'écran de login
+        setTimeout(() => {
+            loginScreen.classList.add('hidden');
+            loginScreen.classList.remove('login-success');
+        }, 800);
+
     } else {
         loginError.textContent = "Code incorrect";
         passwordInput.value = '';
+        
+        // Shake animation
+        const container = document.querySelector('.login-container');
+        container.classList.remove('shake');
+        void container.offsetWidth; // trigger reflow
+        container.classList.add('shake');
+    }
+});
+
+passwordInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+        loginBtn.click();
     }
 });
 
