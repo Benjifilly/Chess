@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v4';
+const CACHE_VERSION = 'v5';
 const CACHE_NAME = `chess-pwa-${CACHE_VERSION}`;
 
 const STATIC_ASSETS = [
@@ -9,70 +9,61 @@ const STATIC_ASSETS = [
   './manifest.json'
 ];
 
+// Install: Cache core files
 self.addEventListener('install', (event) => {
+  // Force the waiting service worker to become the active service worker.
+  self.skipWaiting();
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS)).catch((err) => {
-      console.error('SW install cache error:', err);
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll(STATIC_ASSETS);
     })
   );
-  self.skipWaiting();
 });
 
+// Activate: Clean up old caches
 self.addEventListener('activate', (event) => {
+  // Tell the active service worker to take control of the page immediately.
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(
         keys
           .filter((key) => key.startsWith('chess-pwa-') && key !== CACHE_NAME)
-          .map((staleKey) => caches.delete(staleKey))
+          .map((key) => caches.delete(key))
       )
     ).then(() => self.clients.claim())
   );
 });
 
-function isHttpRequest(request) {
-  return request.url.startsWith('http://') || request.url.startsWith('https://');
-}
-
-function networkFirst(request) {
-  if (!isHttpRequest(request)) {
-    return fetch(request);
-  }
-
-  return fetch(request)
-    .then((response) => {
-      if (!response || response.status !== 200 || response.type !== 'basic') {
-        return response;
-      }
-      const responseClone = response.clone();
-      caches.open(CACHE_NAME).then((cache) => cache.put(request, responseClone));
-      return response;
-    })
-    .catch(() => caches.match(request));
-}
-
+// Fetch: Network First Strategy for EVERYTHING
 self.addEventListener('fetch', (event) => {
-  const { request } = event;
+  // Only handle GET requests
+  if (event.request.method !== 'GET') return;
+  if (!event.request.url.startsWith('http')) return;
 
-  if (!isHttpRequest(request)) {
-    return;
-  }
-
-  // Always try network first for navigation and core files
-  if (request.mode === 'navigate') {
-    event.respondWith(
-      fetch(request).catch(() => caches.match('./index.html'))
-    );
-    return;
-  }
-
-  if (request.destination === 'style' || request.destination === 'script') {
-    event.respondWith(networkFirst(request));
-    return;
-  }
-
-  // Default cache-first fallback
   event.respondWith(
-    caches.match(request).then((cached) => cached || fetch(request))
+    fetch(event.request)
+      .then((response) => {
+        // Network success: update cache and return
+        // We only cache valid 200 responses (Basic or CORS)
+        if (response && response.status === 200) {
+          const responseClone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseClone);
+          });
+        }
+        return response;
+      })
+      .catch(() => {
+        // Network failed, try to get it from the cache
+        return caches.match(event.request).then((cachedResponse) => {
+            if (cachedResponse) {
+                return cachedResponse;
+            }
+            // Fallback for navigation (e.g. /game -> index.html)
+            if (event.request.mode === 'navigate') {
+                return caches.match('./index.html');
+            }
+        });
+      })
   );
 });
