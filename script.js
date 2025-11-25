@@ -3,18 +3,27 @@ let supabaseClient = null;
 
 // Configuration Jeu
 const GAME_ID = CONFIG.GAME_ID; // ID unique pour la partie
-const PLAYERS = {
-    'BENJI1': 'Benji',
-    'SANAA1': 'Sanaa'
+// Hashes SHA-256 des mots de passe (avec sel)
+const SALT = 'ChessDuo_Salt_2024!';
+const PLAYER_HASHES = {
+    'dd5c0a309a41a54df9b76d390575abb4afedf8034b931ee9c47f6d1074f73b0d': 'Benji',
+    'b14111b6e4eb9d20c0098ca91a6f0ab0a27594179905b34b2f7083f99766b02f': 'Sanaa'
 };
 
 let game = null;
 let myColor = null; // 'w' or 'b'
 let myName = null;
 let selectedSquare = null;
+let lastMove = null; // { from: 'e2', to: 'e4' }
 let boardFlipped = false;
 
 let selectedColorChoice = null;
+let selectedTimeChoice = 5; // Default 5 min
+let whiteTimeRemaining = 0;
+let blackTimeRemaining = 0;
+let lastMoveTimestamp = 0;
+let timerInterval = null;
+let timeControl = 0; // 0 = infinite
 
 // Drag and Drop Variables
 let draggedPiece = null;
@@ -32,6 +41,8 @@ const myNameEl = document.getElementById('my-name');
 const opponentNameEl = document.getElementById('opponent-name');
 const myIndicator = document.getElementById('my-indicator');
 const opponentIndicator = document.getElementById('opponent-indicator');
+const myTimerEl = document.getElementById('my-timer');
+const opponentTimerEl = document.getElementById('opponent-timer');
 const newGameModal = document.getElementById('new-game-modal');
 const settingsModal = document.getElementById('settings-modal');
 const gameOverModal = document.getElementById('game-over-modal');
@@ -75,9 +86,11 @@ function initializeApp() {
 }
 
 function checkLogin() {
-    const savedCode = localStorage.getItem('chess_user_code');
-    if (savedCode && PLAYERS[savedCode]) {
-        login(savedCode);
+    const savedName = localStorage.getItem('chess_user_name');
+    if (savedName) {
+        // On fait confiance au localStorage pour la persistance simple
+        // (Pour une vraie sécu, il faudrait un token, mais ici on veut juste éviter de retaper le mdp)
+        login(savedName);
     }
 }
 
@@ -94,6 +107,19 @@ function loadTheme() {
 function setTheme(theme) {
     document.body.setAttribute('data-theme', theme);
     localStorage.setItem('chess_theme', theme);
+    
+    // Clean up custom inline styles if not custom
+    if (theme !== 'custom') {
+        const root = document.documentElement;
+        root.style.removeProperty('--bg-color');
+        root.style.removeProperty('--card-bg');
+        root.style.removeProperty('--board-light');
+        root.style.removeProperty('--board-dark');
+        root.style.removeProperty('--accent');
+    } else {
+        // Re-apply custom colors if switching back to custom
+        loadCustomColors();
+    }
     
     // Hide custom builder if not custom
     const builder = document.getElementById('custom-theme-builder');
@@ -112,18 +138,20 @@ function toggleCustomTheme() {
 
 function applyCustomTheme() {
     const bg = document.getElementById('custom-bg').value;
+    const cardBg = document.getElementById('custom-card-bg').value;
     const boardLight = document.getElementById('custom-board-light').value;
     const boardDark = document.getElementById('custom-board-dark').value;
     const accent = document.getElementById('custom-accent').value;
 
     const root = document.documentElement;
     root.style.setProperty('--bg-color', bg);
+    root.style.setProperty('--card-bg', cardBg);
     root.style.setProperty('--board-light', boardLight);
     root.style.setProperty('--board-dark', boardDark);
     root.style.setProperty('--accent', accent);
     
     // Save to local storage
-    const customColors = { bg, boardLight, boardDark, accent };
+    const customColors = { bg, cardBg, boardLight, boardDark, accent };
     localStorage.setItem('chess_custom_colors', JSON.stringify(customColors));
 }
 
@@ -135,6 +163,7 @@ function loadCustomColors() {
         
         // Set CSS variables
         root.style.setProperty('--bg-color', colors.bg);
+        root.style.setProperty('--card-bg', colors.cardBg || '#3d3126'); // Fallback for old saves
         root.style.setProperty('--board-light', colors.boardLight);
         root.style.setProperty('--board-dark', colors.boardDark);
         root.style.setProperty('--accent', colors.accent);
@@ -142,6 +171,7 @@ function loadCustomColors() {
         // Set input values
         if (document.getElementById('custom-bg')) {
             document.getElementById('custom-bg').value = colors.bg;
+            document.getElementById('custom-card-bg').value = colors.cardBg || '#3d3126';
             document.getElementById('custom-board-light').value = colors.boardLight;
             document.getElementById('custom-board-dark').value = colors.boardDark;
             document.getElementById('custom-accent').value = colors.accent;
@@ -149,18 +179,29 @@ function loadCustomColors() {
     }
 }
 
-loginBtn.addEventListener('click', () => {
+loginBtn.addEventListener('click', async () => {
     const code = passwordInput.value.trim();
-    if (PLAYERS[code]) {
-        localStorage.setItem('chess_user_code', code);
-        login(code);
+    if (!code) return;
+
+    // Hash input with salt
+    const encoder = new TextEncoder();
+    const data = encoder.encode(code + SALT);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+    if (PLAYER_HASHES[hashHex]) {
+        const name = PLAYER_HASHES[hashHex];
+        localStorage.setItem('chess_user_name', name); // Store name instead of code
+        login(name);
     } else {
         loginError.textContent = "Code incorrect";
+        passwordInput.value = '';
     }
 });
 
-function login(code) {
-    myName = PLAYERS[code];
+function login(name) {
+    myName = name;
     
     // Setup UI
     myNameEl.textContent = myName;
@@ -174,7 +215,7 @@ function login(code) {
 }
 
 function logout() {
-    localStorage.removeItem('chess_user_code');
+    localStorage.removeItem('chess_user_name');
     location.reload();
 }
 
@@ -207,10 +248,29 @@ function openNewGameModal() {
     selectedColorChoice = null;
     startGameBtn.disabled = true;
     document.querySelectorAll('.color-option').forEach(el => el.classList.remove('selected'));
+    // Reset time selection to default (5 min)
+    selectTime(5);
 }
 
 function closeModal(modalId) {
     document.getElementById(modalId).classList.add('hidden');
+}
+
+// Close modal when clicking outside
+window.addEventListener('click', (e) => {
+    if (e.target.classList.contains('modal') && !e.target.classList.contains('hidden')) {
+        closeModal(e.target.id);
+    }
+});
+
+function selectTime(minutes) {
+    selectedTimeChoice = minutes;
+    document.querySelectorAll('.time-btn').forEach(btn => {
+        btn.classList.remove('selected');
+        if (btn.dataset.time == minutes) {
+            btn.classList.add('selected');
+        }
+    });
 }
 
 function selectColor(color) {
@@ -236,6 +296,7 @@ async function confirmNewGame() {
     }
     
     game.reset();
+    lastMove = null; // Clear last move highlight
 
     // Update local player color based on selection
     if (whitePlayerName === myName) {
@@ -247,9 +308,16 @@ async function confirmNewGame() {
     // Update board orientation
     boardFlipped = (myColor === 'b');
     
+    // Initialize Time
+    timeControl = selectedTimeChoice * 60 * 1000; // Convert to ms
+    whiteTimeRemaining = timeControl;
+    blackTimeRemaining = timeControl;
+    lastMoveTimestamp = Date.now();
+
     // Render immediately (Optimistic UI)
     renderBoard();
     updateStatus();
+    startTimer();
     
     if (supabaseClient) {
         try {
@@ -259,7 +327,11 @@ async function confirmNewGame() {
                     fen: game.fen(), 
                     last_move: '',
                     white_player: whitePlayerName,
-                    pgn: '' // Reset PGN
+                    pgn: '', // Reset PGN
+                    white_time: whiteTimeRemaining,
+                    black_time: blackTimeRemaining,
+                    last_move_ts: lastMoveTimestamp,
+                    time_control: timeControl
                 })
                 .eq('id', GAME_ID);
         } catch (error) {
@@ -329,6 +401,21 @@ function updateGameState(data = {}) {
     const newFen = data.fen;
     const newPgn = data.pgn;
     const whitePlayer = data.white_player;
+    const lastMoveStr = data.last_move; // "e2-e4"
+    
+    // Time Sync
+    if (data.time_control !== undefined) timeControl = data.time_control;
+    if (data.white_time !== undefined) whiteTimeRemaining = data.white_time;
+    if (data.black_time !== undefined) blackTimeRemaining = data.black_time;
+    if (data.last_move_ts !== undefined) lastMoveTimestamp = data.last_move_ts;
+
+    // Update Last Move
+    if (lastMoveStr) {
+        const [from, to] = lastMoveStr.split('-');
+        lastMove = { from, to };
+    } else {
+        lastMove = null;
+    }
 
     // Déterminer ma couleur
     if (whitePlayer) {
@@ -381,6 +468,9 @@ function updateGameState(data = {}) {
         renderBoard();
         updateStatus();
     }
+    
+    // Always restart timer on update to sync
+    startTimer();
     // Else: Do nothing to avoid flickering (re-render) when Supabase confirms our own move
 }
 
@@ -412,7 +502,11 @@ function renderBoard() {
                 squareDiv.classList.add('selected');
             }
 
-            // Highlight last move (optionnel, à faire plus tard)
+            // Highlight last move (seulement si c'est à mon tour, donc coup de l'adversaire)
+            const isMyTurn = game.turn() === myColor;
+            if (isMyTurn && lastMove && (lastMove.from === squareName || lastMove.to === squareName)) {
+                squareDiv.classList.add('last-move');
+            }
 
             const piece = game.get(squareName);
             if (piece) {
@@ -458,6 +552,23 @@ function renderBoard() {
             // Click handler pour sélectionner
             if (!squareDiv.onclick) {
                 squareDiv.onclick = () => onSquareClick(squareName);
+            }
+
+            // Coordonnées (Ranks: Left edge, Files: Bottom edge)
+            if (c === cols[0]) {
+                const rankNum = 8 - r;
+                const rankSpan = document.createElement('span');
+                rankSpan.className = 'coord coord-rank';
+                rankSpan.innerText = rankNum;
+                squareDiv.appendChild(rankSpan);
+            }
+
+            if (r === rows[rows.length - 1]) {
+                const fileName = String.fromCharCode(97 + c);
+                const fileSpan = document.createElement('span');
+                fileSpan.className = 'coord coord-file';
+                fileSpan.innerText = fileName;
+                squareDiv.appendChild(fileSpan);
             }
 
             boardEl.appendChild(squareDiv);
@@ -567,8 +678,25 @@ async function makeMove(from, to) {
     
     if (move) {
         selectedSquare = null;
+        lastMove = { from, to }; // Update local last move immediately
+        
+        // Update Time Logic
+        const now = Date.now();
+        if (timeControl > 0) {
+            const elapsed = now - lastMoveTimestamp;
+            if (game.turn() === 'b') { // White just moved
+                whiteTimeRemaining -= elapsed;
+                if (whiteTimeRemaining < 0) whiteTimeRemaining = 0;
+            } else { // Black just moved
+                blackTimeRemaining -= elapsed;
+                if (blackTimeRemaining < 0) blackTimeRemaining = 0;
+            }
+        }
+        lastMoveTimestamp = now;
+
         renderBoard();
         updateStatus();
+        startTimer(); // Restart timer for next player
         
         // Envoyer à Supabase
         if (supabaseClient) {
@@ -578,7 +706,10 @@ async function makeMove(from, to) {
                     .update({ 
                         fen: game.fen(), 
                         last_move: `${from}-${to}`,
-                        pgn: game.pgn()
+                        pgn: game.pgn(),
+                        white_time: whiteTimeRemaining,
+                        black_time: blackTimeRemaining,
+                        last_move_ts: lastMoveTimestamp
                     })
                     .eq('id', GAME_ID);
             } catch (error) {
@@ -596,12 +727,98 @@ async function makeMove(from, to) {
     }
 }
 
+function startTimer() {
+    if (timerInterval) clearInterval(timerInterval);
+    
+    // If game over or infinite time, stop
+    if (game.game_over() || timeControl === 0) {
+        updateTimerDisplay();
+        return;
+    }
+
+    timerInterval = setInterval(() => {
+        const now = Date.now();
+        const elapsed = now - lastMoveTimestamp;
+        
+        // Calculate current remaining time for active player
+        // Note: The stored time is the time remaining at the START of the turn
+        // So we subtract elapsed from that.
+        
+        let currentWhite = whiteTimeRemaining;
+        let currentBlack = blackTimeRemaining;
+        
+        if (game.turn() === 'w') {
+            currentWhite -= elapsed;
+        } else {
+            currentBlack -= elapsed;
+        }
+        
+        // Check for flag fall
+        if (currentWhite <= 0) {
+            currentWhite = 0;
+            clearInterval(timerInterval);
+            showGameOver('Noirs'); // White ran out of time
+        } else if (currentBlack <= 0) {
+            currentBlack = 0;
+            clearInterval(timerInterval);
+            showGameOver('Blancs'); // Black ran out of time
+        }
+        
+        updateTimerDisplay(currentWhite, currentBlack);
+    }, 100);
+    
+    // Initial update
+    updateTimerDisplay();
+}
+
+function updateTimerDisplay(currentWhite = null, currentBlack = null) {
+    // If not provided (e.g. initial call), use stored values
+    // But for active player, we want the calculated value from setInterval
+    
+    let wTime = currentWhite !== null ? currentWhite : whiteTimeRemaining;
+    let bTime = currentBlack !== null ? currentBlack : blackTimeRemaining;
+    
+    // If infinite
+    if (timeControl === 0) {
+        myTimerEl.style.display = 'none';
+        opponentTimerEl.style.display = 'none';
+        return;
+    } else {
+        myTimerEl.style.display = 'block';
+        opponentTimerEl.style.display = 'block';
+    }
+
+    const formatTime = (ms) => {
+        if (ms < 0) ms = 0;
+        const totalSeconds = Math.floor(ms / 1000);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    };
+    
+    const myTime = myColor === 'w' ? wTime : bTime;
+    const oppTime = myColor === 'w' ? bTime : wTime;
+    
+    myTimerEl.innerText = formatTime(myTime);
+    opponentTimerEl.innerText = formatTime(oppTime);
+    
+    // Low time warning (< 30s) AND > 0
+    if (myTime < 30000 && myTime > 0) myTimerEl.classList.add('low-time');
+    else myTimerEl.classList.remove('low-time');
+    
+    if (oppTime < 30000 && oppTime > 0) opponentTimerEl.classList.add('low-time');
+    else opponentTimerEl.classList.remove('low-time');
+}
+
 function updateStatus() {
     let status = '';
     let moveColor = game.turn() === 'w' ? 'Blancs' : 'Noirs';
 
     // Update History UI
     updateHistoryUI();
+    
+    // Update Captured Pieces
+    updateCapturedPieces();
 
     // Check for game over conditions
     if (game.in_checkmate()) {
@@ -655,15 +872,37 @@ function highlightKingInCheck() {
     }
 }
 
+const WIN_MESSAGES = [
+    "Bravo mon cœur ! Tu es trop forte ! 😺",
+    "Victoire éclatante ! Je suis fier de toi ! 😸",
+    "Tu as gagné ! Yayyyyy 😽",
+    "Championne du monde (de mon cœur) ! 😻",
+    "Échec et mat ! Tu es brillante ! :)",
+    "Wouah ! Quelle intelligence ! ;)"
+];
+
+const LOSE_MESSAGES = [
+    "Oh non... Mais tu restes la meilleure ! 😿",
+    "Pas grave, on refait une partie ? :(",
+    "Tu m'as laissé gagner, avoue ! 😼",
+    "L'important c'est de participer (et de m'aimer) ! 😽",
+    "Belle partie quand même ! Câlin de réconfort ? :)",
+    "Mince alors... Bisous pour soigner ça ? 😿"
+];
+
 function showGameOver(winner) {
     gameOverModal.classList.remove('hidden');
     if (winner === 'draw') {
         gameOverTitle.textContent = "Match Nul !";
-        gameOverMessage.textContent = "Personne n'a gagné cette fois.";
+        gameOverMessage.textContent = "On est trop connectés, impossible de se départager ! 🤝";
     } else {
         const iWon = (winner === 'Blancs' && myColor === 'w') || (winner === 'Noirs' && myColor === 'b');
         gameOverTitle.textContent = iWon ? "Victoire ! 🎉" : "Défaite...";
-        gameOverMessage.textContent = iWon ? "Bien joué, tu as gagné !" : "L'adversaire a été meilleur.";
+        
+        const messages = iWon ? WIN_MESSAGES : LOSE_MESSAGES;
+        const randomMsg = messages[Math.floor(Math.random() * messages.length)];
+        
+        gameOverMessage.textContent = randomMsg;
         
         if (iWon) {
             triggerConfetti();
@@ -717,6 +956,76 @@ function updateHistoryUI() {
         historyList.innerHTML = html;
         historyList.scrollTop = historyList.scrollHeight;
     }
+}
+
+function updateCapturedPieces() {
+    const board = game.board();
+    const capturedMeEl = document.getElementById('captured-me');
+    const capturedOpponentEl = document.getElementById('captured-opponent');
+    
+    // Initial counts (standard chess set)
+    const initial = {
+        w: { p: 8, n: 2, b: 2, r: 2, q: 1 },
+        b: { p: 8, n: 2, b: 2, r: 2, q: 1 }
+    };
+    
+    // Count current pieces
+    const current = {
+        w: { p: 0, n: 0, b: 0, r: 0, q: 0 },
+        b: { p: 0, n: 0, b: 0, r: 0, q: 0 }
+    };
+    
+    for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+            const piece = board[r][c];
+            if (piece && piece.type !== 'k') {
+                current[piece.color][piece.type]++;
+            }
+        }
+    }
+    
+    // Calculate captured (Initial - Current)
+    // We want to show:
+    // Near Me: Pieces I captured (Opponent's pieces that are missing)
+    // Near Opponent: Pieces They captured (My pieces that are missing)
+    
+    const opponentColor = myColor === 'w' ? 'b' : 'w';
+    
+    // Pieces I captured (Opponent color pieces missing)
+    const capturedByMe = [];
+    ['p', 'n', 'b', 'r', 'q'].forEach(type => {
+        const count = initial[opponentColor][type] - current[opponentColor][type];
+        for (let i = 0; i < count; i++) {
+            capturedByMe.push({ type, color: opponentColor });
+        }
+    });
+    
+    // Pieces Opponent captured (My color pieces missing)
+    const capturedByOpponent = [];
+    ['p', 'n', 'b', 'r', 'q'].forEach(type => {
+        const count = initial[myColor][type] - current[myColor][type];
+        for (let i = 0; i < count; i++) {
+            capturedByOpponent.push({ type, color: myColor });
+        }
+    });
+    
+    // Render
+    const renderPieces = (container, pieces) => {
+        if (!container) return;
+        container.innerHTML = pieces.map((p, index) => {
+            const colorName = p.color === 'w' ? 'white' : 'black';
+            const typeName = getPieceName(p.type);
+            
+            // Check if previous piece was same type
+            const isStacked = index > 0 && pieces[index - 1].type === p.type;
+            const stackClass = isStacked ? 'stacked' : '';
+            
+            return `<div class="captured-piece ${stackClass}" style="background-image: url('pièces/set1/${colorName}-${typeName}.png')"></div>`;
+        }).join('');
+    };
+    
+    renderPieces(capturedMeEl, capturedByMe);
+    renderPieces(capturedOpponentEl, capturedByOpponent);
 }
 
 // Boutons
