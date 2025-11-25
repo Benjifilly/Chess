@@ -475,9 +475,16 @@ function updateGameState(data = {}) {
 }
 
 function renderBoard() {
-    boardEl.innerHTML = '';
     const squares = game.board(); // 8x8 array
     
+    // Check if we need a full rebuild
+    const isRebuild = boardEl.children.length !== 64 || (boardEl.dataset.flipped !== String(boardFlipped));
+    
+    if (isRebuild) {
+        boardEl.innerHTML = '';
+        boardEl.dataset.flipped = String(boardFlipped);
+    }
+
     // Gestion de l'orientation (Blanc en bas ou Noir en bas)
     let rows = [0, 1, 2, 3, 4, 5, 6, 7];
     let cols = [0, 1, 2, 3, 4, 5, 6, 7];
@@ -487,92 +494,123 @@ function renderBoard() {
         cols.reverse();
     }
 
-    // Création de la grille
+    // Création ou Mise à jour de la grille
     for (let r of rows) { // 0 to 7 (8 to 1 in chess notation logic, but array index 0 is rank 8)
         for (let c of cols) {
             const squareIndex = (r * 8) + c;
             const squareName = String.fromCharCode(97 + c) + (8 - r);
             
-            const squareDiv = document.createElement('div');
-            squareDiv.className = `square ${(r + c) % 2 === 0 ? 'light' : 'dark'}`;
-            squareDiv.dataset.square = squareName;
+            let squareDiv;
+
+            if (isRebuild) {
+                squareDiv = document.createElement('div');
+                squareDiv.className = `square ${(r + c) % 2 === 0 ? 'light' : 'dark'}`;
+                squareDiv.dataset.square = squareName;
+                
+                // Coordonnées (Static)
+                if (c === cols[0]) {
+                    const rankNum = 8 - r;
+                    const rankSpan = document.createElement('span');
+                    rankSpan.className = 'coord coord-rank';
+                    rankSpan.innerText = rankNum;
+                    squareDiv.appendChild(rankSpan);
+                }
+
+                if (r === rows[rows.length - 1]) {
+                    const fileName = String.fromCharCode(97 + c);
+                    const fileSpan = document.createElement('span');
+                    fileSpan.className = 'coord coord-file';
+                    fileSpan.innerText = fileName;
+                    squareDiv.appendChild(fileSpan);
+                }
+                
+                boardEl.appendChild(squareDiv);
+            } else {
+                squareDiv = boardEl.querySelector(`[data-square="${squareName}"]`);
+            }
+
+            // --- Dynamic Updates ---
+
+            // 1. Classes
+            squareDiv.classList.remove('selected', 'last-move', 'capture-hint');
             
-            // Highlight selected
             if (selectedSquare === squareName) {
                 squareDiv.classList.add('selected');
             }
 
-            // Highlight last move (seulement si c'est à mon tour, donc coup de l'adversaire)
             const isMyTurn = game.turn() === myColor;
             if (isMyTurn && lastMove && (lastMove.from === squareName || lastMove.to === squareName)) {
                 squareDiv.classList.add('last-move');
             }
 
+            // 2. Piece
             const piece = game.get(squareName);
+            let pieceDiv = squareDiv.querySelector('.piece');
+
             if (piece) {
-                const pieceImg = document.createElement('div');
-                pieceImg.className = 'piece';
                 const colorName = piece.color === 'w' ? 'white' : 'black';
                 const typeName = getPieceName(piece.type);
-                pieceImg.style.backgroundImage = `url('pièces/set1/${colorName}-${typeName}.png')`;
-                
-                // Drag and Drop Logic
-                if (piece.color === myColor) {
-                    pieceImg.draggable = true;
-                    pieceImg.addEventListener('dragstart', (e) => handleDragStart(e, squareName));
-                    pieceImg.addEventListener('dragend', handleDragEnd);
+                const bgImage = `url("pièces/set1/${colorName}-${typeName}.png")`;
+
+                if (!pieceDiv) {
+                    pieceDiv = document.createElement('div');
+                    pieceDiv.className = 'piece';
+                    squareDiv.appendChild(pieceDiv);
                 }
                 
-                squareDiv.appendChild(pieceImg);
+                // Only update if changed to prevent flicker
+                if (!pieceDiv.style.backgroundImage.includes(`${colorName}-${typeName}.png`)) {
+                     pieceDiv.style.backgroundImage = bgImage;
+                }
+
+                // Drag Events
+                if (piece.color === myColor) {
+                    pieceDiv.draggable = true;
+                    pieceDiv.ondragstart = (e) => handleDragStart(e, squareName);
+                    pieceDiv.ondragend = handleDragEnd;
+                } else {
+                    pieceDiv.draggable = false;
+                    pieceDiv.ondragstart = null;
+                    pieceDiv.ondragend = null;
+                }
+            } else {
+                if (pieceDiv) pieceDiv.remove();
             }
 
-            // Drop Zone Logic
-            squareDiv.addEventListener('dragover', handleDragOver);
-            squareDiv.addEventListener('drop', (e) => handleDrop(e, squareName));
+            // 3. Drop Zone Events (Static-ish)
+            if (isRebuild) {
+                squareDiv.addEventListener('dragover', handleDragOver);
+                squareDiv.addEventListener('drop', (e) => handleDrop(e, squareName));
+            }
 
-            // Ajout des hints pour les coups possibles
+            // 4. Hints & Click Handlers
+            // Reset click handler
+            squareDiv.onclick = () => onSquareClick(squareName);
+
+            // Remove old hints
+            const existingHint = squareDiv.querySelector('.hint');
+            if (existingHint) existingHint.remove();
+
             if (selectedSquare) {
                 const moves = game.moves({ square: selectedSquare, verbose: true });
                 const isMove = moves.find(m => m.to === squareName);
                 if (isMove) {
-                    const hint = document.createElement('div');
-                    
-                    // Check if it's a capture
                     if (isMove.flags.includes('c') || isMove.flags.includes('e')) {
                         squareDiv.classList.add('capture-hint');
                     } else {
+                        const hint = document.createElement('div');
                         hint.className = 'hint';
                         squareDiv.appendChild(hint);
                     }
-                    
                     squareDiv.onclick = () => makeMove(selectedSquare, squareName);
                 }
             }
-
-            // Click handler pour sélectionner
-            if (!squareDiv.onclick) {
-                squareDiv.onclick = () => onSquareClick(squareName);
-            }
-
-            // Coordonnées (Ranks: Left edge, Files: Bottom edge)
-            if (c === cols[0]) {
-                const rankNum = 8 - r;
-                const rankSpan = document.createElement('span');
-                rankSpan.className = 'coord coord-rank';
-                rankSpan.innerText = rankNum;
-                squareDiv.appendChild(rankSpan);
-            }
-
-            if (r === rows[rows.length - 1]) {
-                const fileName = String.fromCharCode(97 + c);
-                const fileSpan = document.createElement('span');
-                fileSpan.className = 'coord coord-file';
-                fileSpan.innerText = fileName;
-                squareDiv.appendChild(fileSpan);
-            }
-
-            boardEl.appendChild(squareDiv);
         }
+    }
+    
+    // Re-apply check highlight if king is in check
+    if (game.in_check()) {
+        highlightKingInCheck();
     }
 }
 
@@ -659,6 +697,11 @@ function highlightMoves(square) {
             }
         }
     });
+
+    // Re-apply check highlight if king is in check
+    if (game.in_check()) {
+        highlightKingInCheck();
+    }
 }
 
 function handleDragOver(e) {

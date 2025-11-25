@@ -59,6 +59,12 @@ body {
     width: 100%;
     transition: background-color 0.3s, color 0.3s;
     -webkit-overflow-scrolling: touch;
+    touch-action: none; /* Prevent zoom and scroll on body */
+}
+
+/* Allow scrolling in specific areas */
+.history-container, .dropdown, .modal-content, footer {
+    touch-action: pan-y;
 }
 
 /* Login Screen */
