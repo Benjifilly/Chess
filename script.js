@@ -1129,3 +1129,46 @@ if (shouldRegisterSW) {
         });
     }
 }
+
+// Gestion de la visibilité (PWA/Mobile) pour rafraîchir l'état au retour
+document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState === 'visible') {
+        console.log('App is back in foreground, refreshing game state...');
+        
+        // 1. Re-fetch state from Supabase
+        if (supabaseClient) {
+            try {
+                const response = await supabaseClient
+                    .from('chess_state')
+                    .select('*')
+                    .eq('id', GAME_ID)
+                    .single();
+                
+                if (response.data) {
+                    console.log('State refreshed:', response.data);
+                    updateGameState(response.data);
+                }
+                
+                // 2. Ensure Realtime subscription is active
+                const channels = supabaseClient.getChannels();
+                const gameChannel = channels.find(c => c.topic === `realtime:public:chess_state:id=eq.${GAME_ID}`);
+                
+                if (!gameChannel || gameChannel.state !== 'joined') {
+                    console.log('Reconnecting realtime channel...');
+                    // Remove old if exists but not joined
+                    if (gameChannel) await supabaseClient.removeChannel(gameChannel);
+                    
+                    // Re-subscribe
+                    supabaseClient
+                        .channel('chess_game')
+                        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'chess_state', filter: `id=eq.${GAME_ID}` }, payload => {
+                            updateGameState(payload.new);
+                        })
+                        .subscribe();
+                }
+            } catch (e) {
+                console.error('Error refreshing game state:', e);
+            }
+        }
+    }
+});
