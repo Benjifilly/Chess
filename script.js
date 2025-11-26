@@ -29,6 +29,66 @@ let timeControl = 0; // 0 = infinite
 let draggedPiece = null;
 let sourceSquare = null;
 
+// History Navigation
+let viewIndex = null; // null = live, -1 = start, 0 = after 1st move...
+
+function navigateHistory(direction) {
+    const history = game.history();
+    if (history.length === 0) return; // Pas d'historique disponible
+
+    const maxIndex = history.length - 1;
+    
+    // Initialize viewIndex if null (Live)
+    if (viewIndex === null) {
+        if (direction === -1) {
+            // Si on est en live, on veut voir le dernier coup joué (maxIndex)
+            // SAUF si on veut annuler le dernier coup, alors on veut voir l'état AVANT le dernier coup.
+            // "Undo" visuel = voir l'état précédent.
+            // État actuel (Live) = Après move[maxIndex].
+            // État précédent = Après move[maxIndex-1].
+            viewIndex = maxIndex - 1; 
+        } else {
+            return; // Already at end
+        }
+    } else {
+        viewIndex += direction;
+    }
+    
+    // Clamp
+    if (viewIndex < -1) viewIndex = -1; // Start position
+    
+    // Check if back to live
+    if (viewIndex >= maxIndex) {
+        viewIndex = null; // Back to live
+    }
+    
+    renderBoard();
+    updateStatus();
+    updateHistoryButtons();
+}
+
+function updateHistoryButtons() {
+    const btnPrev = document.getElementById('btn-prev');
+    const btnNext = document.getElementById('btn-next');
+    const history = game.history();
+    
+    if (viewIndex === null) {
+        // Disable Prev if no history OR if history has only 1 move and we are at live (optional, but consistent)
+        // Actually, if history has 1 move, we can go back to Start (-1). So enabled if length > 0.
+        btnPrev.disabled = (history.length === 0);
+        btnNext.disabled = true;
+        
+        // Visual fix: If history is empty, opacity is lower
+        btnPrev.style.opacity = (history.length === 0) ? '0.3' : '1';
+    } else {
+        btnPrev.disabled = (viewIndex === -1);
+        btnNext.disabled = false;
+        
+        btnPrev.style.opacity = (viewIndex === -1) ? '0.3' : '1';
+    }
+    btnNext.style.opacity = (btnNext.disabled) ? '0.3' : '1';
+}
+
 // DOM Elements
 const loginScreen = document.getElementById('login-screen');
 const gameScreen = document.getElementById('game-screen');
@@ -327,6 +387,7 @@ async function confirmNewGame() {
     
     game.reset();
     lastMove = null; // Clear last move highlight
+    viewIndex = null; // Reset history view
 
     // Update local player color based on selection
     if (whitePlayerName === myName) {
@@ -484,13 +545,21 @@ function updateGameState(data = {}) {
 
     if (!newFen && !newPgn) {
         game.reset();
+        viewIndex = null;
         needsRender = true;
     } else {
         // Prefer PGN for history
-        if (newPgn && newPgn !== game.pgn()) {
-            game.load_pgn(newPgn);
-            needsRender = true;
-        } else if (!newPgn && newFen && newFen !== game.fen()) {
+        // Force load PGN if available to ensure history is populated
+        if (newPgn && newPgn.trim() !== '') {
+            const loaded = game.load_pgn(newPgn);
+            if (loaded) {
+                needsRender = true;
+            } else {
+                console.warn('PGN invalide, fallback FEN');
+                if (newFen) game.load(newFen);
+                needsRender = true;
+            }
+        } else if (newFen && newFen !== game.fen()) {
             // Fallback to FEN
             try {
                 game.load(newFen);
@@ -521,8 +590,26 @@ function updateGameState(data = {}) {
     // Else: Do nothing to avoid flickering (re-render) when Supabase confirms our own move
 }
 
+// Helper to reconstruct game state for history navigation
+// (Chess.js 0.10.3 doesn't provide FEN in history objects, so we replay moves)
+function getHistoricalGame(index) {
+    if (index === null) return game;
+    
+    const history = game.history(); // Get SAN moves
+    const tempGame = new Chess();
+    
+    // Apply moves up to index
+    for (let i = 0; i <= index; i++) {
+        tempGame.move(history[i]);
+    }
+    return tempGame;
+}
+
 function renderBoard() {
-    const squares = game.board(); // 8x8 array
+    // Determine which game state to render
+    const activeGame = getHistoricalGame(viewIndex);
+
+    const squares = activeGame.board(); // 8x8 array
     
     // Check if we need a full rebuild
     const isRebuild = boardEl.children.length !== 64 || (boardEl.dataset.flipped !== String(boardFlipped));
@@ -542,7 +629,7 @@ function renderBoard() {
     }
 
     // Création ou Mise à jour de la grille
-    for (let r of rows) { // 0 to 7 (8 to 1 in chess notation logic, but array index 0 is rank 8)
+    for (let r of rows) { 
         for (let c of cols) {
             const squareIndex = (r * 8) + c;
             const squareName = String.fromCharCode(97 + c) + (8 - r);
@@ -585,13 +672,35 @@ function renderBoard() {
                 squareDiv.classList.add('selected');
             }
 
-            const isMyTurn = game.turn() === myColor;
-            if (isMyTurn && lastMove && (lastMove.from === squareName || lastMove.to === squareName)) {
+            const isMyTurn = activeGame.turn() === myColor;
+            
+            // Determine move to highlight
+            let highlightMove = null;
+            
+            if (viewIndex === null) {
+                // Live: Highlight last OPPONENT move
+                const history = activeGame.history({ verbose: true });
+                for (let i = history.length - 1; i >= 0; i--) {
+                    if (history[i].color !== myColor) {
+                        highlightMove = history[i];
+                        break;
+                    }
+                }
+            } else {
+                // History: Highlight the move at viewIndex
+                const history = game.history({ verbose: true });
+                if (viewIndex >= 0 && history[viewIndex]) {
+                    highlightMove = history[viewIndex];
+                }
+            }
+
+            // Highlight last move
+            if (highlightMove && (highlightMove.from === squareName || highlightMove.to === squareName)) {
                 squareDiv.classList.add('last-move');
             }
 
             // 2. Piece
-            const piece = game.get(squareName);
+            const piece = activeGame.get(squareName);
             let pieceDiv = squareDiv.querySelector('.piece');
 
             if (piece) {
@@ -605,20 +714,21 @@ function renderBoard() {
                     squareDiv.appendChild(pieceDiv);
                 }
                 
-                // Only update if changed to prevent flicker
                 if (!pieceDiv.style.backgroundImage.includes(`${colorName}-${typeName}.png`)) {
                      pieceDiv.style.backgroundImage = bgImage;
                 }
 
-                // Drag Events
-                if (piece.color === myColor) {
+                // Drag Events - ONLY if Live
+                if (viewIndex === null && piece.color === myColor) {
                     pieceDiv.draggable = true;
                     pieceDiv.ondragstart = (e) => handleDragStart(e, squareName);
                     pieceDiv.ondragend = handleDragEnd;
+                    pieceDiv.style.cursor = 'pointer';
                 } else {
                     pieceDiv.draggable = false;
                     pieceDiv.ondragstart = null;
                     pieceDiv.ondragend = null;
+                    pieceDiv.style.cursor = 'default';
                 }
             } else {
                 if (pieceDiv) pieceDiv.remove();
@@ -631,15 +741,14 @@ function renderBoard() {
             }
 
             // 4. Hints & Click Handlers
-            // Reset click handler
             squareDiv.onclick = () => onSquareClick(squareName);
 
-            // Remove old hints
             const existingHint = squareDiv.querySelector('.hint');
             if (existingHint) existingHint.remove();
 
-            if (selectedSquare) {
-                const moves = game.moves({ square: selectedSquare, verbose: true });
+            // Show hints only if Live
+            if (viewIndex === null && selectedSquare) {
+                const moves = activeGame.moves({ square: selectedSquare, verbose: true });
                 const isMove = moves.find(m => m.to === squareName);
                 if (isMove) {
                     if (isMove.flags.includes('c') || isMove.flags.includes('e')) {
@@ -656,9 +765,11 @@ function renderBoard() {
     }
     
     // Re-apply check highlight if king is in check
-    if (game.in_check()) {
-        highlightKingInCheck();
+    if (activeGame.in_check()) {
+        highlightKingInCheck(activeGame);
     }
+    
+    updateHistoryButtons();
 }
 
 function getPieceName(type) {
@@ -668,7 +779,7 @@ function getPieceName(type) {
 
 function onSquareClick(square) {
     // Si ce n'est pas mon tour, je ne peux rien faire
-    if (game.turn() !== myColor) return;
+    if (viewIndex !== null || game.turn() !== myColor) return;
 
     const piece = game.get(square);
     
@@ -687,7 +798,7 @@ function onSquareClick(square) {
 // --- DRAG AND DROP HANDLERS ---
 
 function handleDragStart(e, square) {
-    if (game.turn() !== myColor) {
+    if (viewIndex !== null || game.turn() !== myColor) {
         e.preventDefault();
         return;
     }
@@ -901,42 +1012,47 @@ function updateTimerDisplay(currentWhite = null, currentBlack = null) {
 }
 
 function updateStatus() {
+    const activeGame = getHistoricalGame(viewIndex);
+
     let status = '';
-    let moveColor = game.turn() === 'w' ? 'Blancs' : 'Noirs';
+    let moveColor = activeGame.turn() === 'w' ? 'Blancs' : 'Noirs';
 
     // Update History UI
     updateHistoryUI();
     
     // Update Captured Pieces
-    updateCapturedPieces();
+    updateCapturedPieces(activeGame);
 
     // Check for game over conditions
-    if (game.in_checkmate()) {
-        const winner = game.turn() === 'w' ? 'Noirs' : 'Blancs';
+    if (activeGame.in_checkmate()) {
+        const winner = activeGame.turn() === 'w' ? 'Noirs' : 'Blancs';
         status = `Échec et mat ! ${winner} gagnent.`;
-        showGameOver(winner);
-    } else if (game.in_draw() || game.in_stalemate() || game.in_threefold_repetition() || game.insufficient_material()) {
+        if (viewIndex === null) showGameOver(winner);
+    } else if (activeGame.in_draw() || activeGame.in_stalemate() || activeGame.in_threefold_repetition() || activeGame.insufficient_material()) {
         status = 'Match nul !';
-        showGameOver('draw');
+        if (viewIndex === null) showGameOver('draw');
     } else {
         status = `Au tour des ${moveColor}`;
-        if (game.in_check()) {
+        if (activeGame.in_check()) {
             status += ' (Échec !)';
-            highlightKingInCheck();
+            highlightKingInCheck(activeGame);
         } else {
             // Remove check highlight if not in check
-            const kingSquare = document.querySelector('.square.capture-hint');
-            // Only remove if it's a king (check logic) not a capture hint
-            // Actually, renderBoard clears everything, so we are good.
-            // But if we just updated status without renderBoard (rare), we might need to clear.
-            // renderBoard is called before updateStatus in all cases.
+            // renderBoard handles this
         }
+    }
+    
+    if (viewIndex !== null) {
+        const total = game.history().length;
+        const current = viewIndex + 1;
+        status = `Historique (${current}/${total})`;
+        if (viewIndex === -1) status = `Historique (Début)`;
     }
     
     statusEl.textContent = status;
 
     // Update indicators
-    if (game.turn() === myColor) {
+    if (activeGame.turn() === myColor) {
         myIndicator.classList.add('active');
         opponentIndicator.classList.remove('active');
     } else {
@@ -945,9 +1061,9 @@ function updateStatus() {
     }
 }
 
-function highlightKingInCheck() {
-    const kingColor = game.turn();
-    const board = game.board();
+function highlightKingInCheck(activeGame = game) {
+    const kingColor = activeGame.turn();
+    const board = activeGame.board();
     for (let r = 0; r < 8; r++) {
         for (let c = 0; c < 8; c++) {
             const piece = board[r][c];
@@ -1048,8 +1164,8 @@ function updateHistoryUI() {
     }
 }
 
-function updateCapturedPieces() {
-    const board = game.board();
+function updateCapturedPieces(activeGame = game) {
+    const board = activeGame.board();
     const capturedMeEl = document.getElementById('captured-me');
     const capturedOpponentEl = document.getElementById('captured-opponent');
     
@@ -1176,3 +1292,7 @@ document.addEventListener('visibilitychange', async () => {
         }
     }
 });
+
+// History Buttons
+document.getElementById('btn-prev').addEventListener('click', () => navigateHistory(-1));
+document.getElementById('btn-next').addEventListener('click', () => navigateHistory(1));

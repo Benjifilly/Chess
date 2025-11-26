@@ -197,10 +197,20 @@
         </div>
 
         <footer>
-            <div class="player-status me">
-                <span id="my-name">Moi</span>
-                <span id="my-timer" class="timer">--:--</span>
-                <div class="indicator" id="my-indicator"></div>
+            <div class="footer-header">
+                <div class="player-status me">
+                    <span id="my-name">Moi</span>
+                    <span id="my-timer" class="timer">--:--</span>
+                    <div class="indicator" id="my-indicator"></div>
+                </div>
+                <div class="history-controls">
+                    <button id="btn-prev" class="icon-btn" title="Coup précédent">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                    </button>
+                    <button id="btn-next" class="icon-btn" title="Coup suivant" disabled>
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+                    </button>
+                </div>
             </div>
             
             <div class="controls">
