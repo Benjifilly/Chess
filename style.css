@@ -883,12 +883,17 @@ footer {
     background-repeat: no-repeat;
     background-position: center;
     filter: drop-shadow(0 2px 2px rgba(0,0,0,0.3));
-    margin-left: -10px; /* Default small overlap for different types */
+    margin-left: -5px; /* Adjusted for mobile: less tight */
     position: relative;
 }
 
+/* Fine border for black pieces */
+.captured-piece[style*="black-"] {
+    filter: drop-shadow(0 0 1.5px rgba(255, 255, 255, 0.9)) drop-shadow(0 2px 2px rgba(0,0,0,0.3));
+}
+
 .captured-piece.stacked {
-    margin-left: -18px; /* Larger overlap for same type */
+    margin-left: -12px; /* Adjusted for mobile: less tight */
 }
 
 .captured-piece:first-child {
@@ -984,6 +989,11 @@ footer {
     .captured-piece {
         width: 26px;
         height: 26px;
+        margin-left: -10px; /* Restore tighter overlap for desktop */
+    }
+
+    .captured-piece.stacked {
+        margin-left: -18px; /* Restore tighter overlap for desktop */
     }
 
     /* Sidebar Panels */
