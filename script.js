@@ -413,17 +413,34 @@ async function initGame() {
     }
 
     // Écouter les changements en temps réel
-    if (supabaseClient) {
-        try {
-            supabaseClient
-                .channel('chess_game')
-                .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'chess_state', filter: `id=eq.${GAME_ID}` }, payload => {
-                    updateGameState(payload.new);
-                })
-                .subscribe();
-        } catch (error) {
-            console.error('Erreur canal temps réel:', error);
+    setupRealtimeSubscription();
+}
+
+function setupRealtimeSubscription() {
+    if (!supabaseClient) return;
+
+    // Clean up existing channels first to be safe
+    const channels = supabaseClient.getChannels();
+    channels.forEach(channel => {
+        if (channel.topic.includes('chess_state')) {
+            console.log('Removing existing channel:', channel.topic);
+            supabaseClient.removeChannel(channel);
         }
+    });
+
+    try {
+        console.log('Setting up new realtime subscription...');
+        supabaseClient
+            .channel('chess_game_' + Date.now()) // Unique name to force fresh connection
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'chess_state', filter: `id=eq.${GAME_ID}` }, payload => {
+                console.log('Realtime update received:', payload);
+                updateGameState(payload.new);
+            })
+            .subscribe((status) => {
+                console.log('Subscription status:', status);
+            });
+    } catch (error) {
+        console.error('Erreur canal temps réel:', error);
     }
 }
 
@@ -1149,23 +1166,10 @@ document.addEventListener('visibilitychange', async () => {
                     updateGameState(response.data);
                 }
                 
-                // 2. Ensure Realtime subscription is active
-                const channels = supabaseClient.getChannels();
-                const gameChannel = channels.find(c => c.topic === `realtime:public:chess_state:id=eq.${GAME_ID}`);
-                
-                if (!gameChannel || gameChannel.state !== 'joined') {
-                    console.log('Reconnecting realtime channel...');
-                    // Remove old if exists but not joined
-                    if (gameChannel) await supabaseClient.removeChannel(gameChannel);
-                    
-                    // Re-subscribe
-                    supabaseClient
-                        .channel('chess_game')
-                        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'chess_state', filter: `id=eq.${GAME_ID}` }, payload => {
-                            updateGameState(payload.new);
-                        })
-                        .subscribe();
-                }
+                // 2. Force Reconnect Realtime
+                console.log('Forcing realtime reconnection...');
+                setupRealtimeSubscription();
+
             } catch (e) {
                 console.error('Error refreshing game state:', e);
             }
