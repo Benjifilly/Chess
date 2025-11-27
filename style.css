@@ -34,6 +34,8 @@
 * {
     box-sizing: border-box;
     user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
     -webkit-tap-highlight-color: transparent;
 }
 
@@ -725,12 +727,12 @@ footer {
 }
 
 .square.selected {
-    background-color: rgba(255, 255, 50, 0.5) !important; /* Style Chess.com : Surlignage jaune */
+    background-color: rgba(136, 176, 75, 0.15) !important;
     box-shadow: none !important;
 }
 
 .square.last-move {
-    box-shadow: inset 0 0 0 1000px rgba(255, 255, 255, 0.15);
+    box-shadow: inset 0 0 0 1000px rgba(255, 255, 50, 0.15);
 }
 
 .piece {

@@ -723,6 +723,12 @@ function renderBoard() {
                     pieceDiv.draggable = true;
                     pieceDiv.ondragstart = (e) => handleDragStart(e, squareName);
                     pieceDiv.ondragend = handleDragEnd;
+                    
+                    // Touch Events for Mobile
+                    pieceDiv.ontouchstart = (e) => handleTouchStart(e, squareName);
+                    pieceDiv.ontouchmove = (e) => handleTouchMove(e);
+                    pieceDiv.ontouchend = (e) => handleTouchEnd(e);
+
                     pieceDiv.style.cursor = 'pointer';
                 } else {
                     pieceDiv.draggable = false;
@@ -872,6 +878,85 @@ function handleDrop(e, targetSquare) {
     if (sourceSquare && sourceSquare !== targetSquare) {
         makeMove(sourceSquare, targetSquare);
     }
+}
+
+// --- TOUCH SUPPORT (Mobile Drag & Drop) ---
+
+let activeTouchPiece = null;
+
+function handleTouchStart(e, square) {
+    if (viewIndex !== null || game.turn() !== myColor) return;
+    e.preventDefault(); // Prevent scroll
+    
+    const touch = e.touches[0];
+    const target = e.target;
+    
+    activeTouchPiece = target;
+    sourceSquare = square;
+    selectedSquare = square;
+    
+    // Visual feedback
+    highlightMoves(square);
+    
+    // Prepare for moving
+    const rect = target.getBoundingClientRect();
+    activeTouchPiece.style.width = rect.width + 'px';
+    activeTouchPiece.style.height = rect.height + 'px';
+    activeTouchPiece.style.position = 'fixed';
+    activeTouchPiece.style.zIndex = '1000';
+    // activeTouchPiece.style.pointerEvents = 'none'; // Removed to ensure events keep firing
+    
+    // Center piece on finger
+    moveTouchPiece(touch.clientX, touch.clientY);
+}
+
+function handleTouchMove(e) {
+    if (!activeTouchPiece) return;
+    e.preventDefault();
+    const touch = e.touches[0];
+    moveTouchPiece(touch.clientX, touch.clientY);
+}
+
+function moveTouchPiece(x, y) {
+    if (activeTouchPiece) {
+        activeTouchPiece.style.left = (x - parseFloat(activeTouchPiece.style.width) / 2) + 'px';
+        activeTouchPiece.style.top = (y - parseFloat(activeTouchPiece.style.height) / 2) + 'px';
+    }
+}
+
+function handleTouchEnd(e) {
+    if (!activeTouchPiece) return;
+    e.preventDefault();
+    
+    const touch = e.changedTouches[0];
+    
+    // Hide to see what's under
+    activeTouchPiece.style.display = 'none';
+    const targetEl = document.elementFromPoint(touch.clientX, touch.clientY);
+    activeTouchPiece.style.display = 'block';
+    
+    // Reset styles
+    activeTouchPiece.style.position = '';
+    activeTouchPiece.style.left = '';
+    activeTouchPiece.style.top = '';
+    activeTouchPiece.style.zIndex = '';
+    activeTouchPiece.style.width = '90%';
+    activeTouchPiece.style.height = '90%';
+    activeTouchPiece.style.pointerEvents = '';
+    
+    activeTouchPiece = null;
+    
+    // Find square
+    const squareDiv = targetEl ? targetEl.closest('.square') : null;
+    
+    if (squareDiv && squareDiv.dataset.square) {
+        const targetSquare = squareDiv.dataset.square;
+        if (sourceSquare !== targetSquare) {
+            makeMove(sourceSquare, targetSquare);
+        }
+    }
+    
+    sourceSquare = null;
 }
 
 async function makeMove(from, to) {
