@@ -41,7 +41,7 @@
 html {
     overflow: hidden;
     height: 100%;
-    position: relative;
+    position: fixed;
     width: 100%;
     background-color: var(--bg-color);
     overscroll-behavior: none;
@@ -58,7 +58,7 @@ body {
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    position: relative;
+    position: fixed;
     transition: background-color 0.3s, color 0.3s;
     -webkit-overflow-scrolling: touch;
     touch-action: none; /* Prevent zoom and scroll on body */
@@ -623,7 +623,7 @@ button, .dropdown-item, .color-option {
     height: 100%;
     justify-content: space-between;
     overflow: hidden;
-    position: absolute;
+    position: fixed;
     width: 100%;
     top: 0;
     left: 0;
@@ -647,6 +647,9 @@ footer {
 }
 
 @media all and (display-mode: standalone) {
+    body {
+        height: 100vh;
+    }
     footer {
         padding-bottom: 0;
     }
