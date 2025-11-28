@@ -180,12 +180,27 @@ function setTheme(theme) {
         loadCustomColors();
     }
     
+    // Update theme-color meta tag for Safari
+    updateThemeColor();
+    
     // Hide custom builder if not custom
     const builder = document.getElementById('custom-theme-builder');
     if (theme !== 'custom') {
         builder.classList.remove('active');
         closeModal('settings-modal');
     }
+}
+
+function updateThemeColor() {
+    const root = getComputedStyle(document.documentElement);
+    const bgColor = root.getPropertyValue('--bg-color').trim();
+    let metaThemeColor = document.querySelector('meta[name="theme-color"]');
+    if (!metaThemeColor) {
+        metaThemeColor = document.createElement('meta');
+        metaThemeColor.name = 'theme-color';
+        document.head.appendChild(metaThemeColor);
+    }
+    metaThemeColor.content = bgColor;
 }
 
 function toggleCustomTheme() {
@@ -208,6 +223,9 @@ function applyCustomTheme() {
     root.style.setProperty('--board-light', boardLight);
     root.style.setProperty('--board-dark', boardDark);
     root.style.setProperty('--accent', accent);
+    
+    // Update theme-color meta tag
+    updateThemeColor();
     
     // Save to local storage
     const customColors = { bg, cardBg, boardLight, boardDark, accent };

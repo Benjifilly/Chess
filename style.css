@@ -649,12 +649,15 @@ header {
 
 footer {
     padding: 15px 15px;
-    padding-bottom: 15px;
+    padding-bottom: max(15px, env(safe-area-inset-bottom));
     background: transparent;
     flex-shrink: 0;
 }
 
 @media all and (display-mode: standalone) {
+    footer {
+        padding-bottom: env(safe-area-inset-bottom, 0);
+    }
     .chat-input-area {
         padding-bottom: max(20px, env(safe-area-inset-bottom));
     }
