@@ -341,6 +341,13 @@ function openNewGameModal() {
     selectTime(5);
 }
 
+function openModal(modalId) {
+    const modal = document.getElementById(modalId);
+    if (modal) {
+        modal.classList.remove('hidden');
+    }
+}
+
 function closeModal(modalId) {
     document.getElementById(modalId).classList.add('hidden');
 }
@@ -1433,11 +1440,21 @@ function setupChatSubscription() {
     // Load existing messages
     loadChatHistory();
 
-    // Subscribe to new messages
+    // Subscribe to new messages and deletions
     supabaseClient
         .channel('chess_chat_room')
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chess_chat', filter: `game_id=eq.${GAME_ID}` }, payload => {
             displayMessage(payload.new, false);
+        })
+        .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'chess_chat', filter: `game_id=eq.${GAME_ID}` }, payload => {
+            const msgId = payload.old.id;
+            const el = document.querySelector(`.message[data-id="${msgId}"]`);
+            if (el) el.remove();
+            
+            const container = document.getElementById('chat-messages');
+            if (container.children.length === 0) {
+                container.innerHTML = '<div class="chat-empty">Aucun message...</div>';
+            }
         })
         .subscribe();
 }
@@ -1474,6 +1491,7 @@ function displayMessage(msg, isHistory = false) {
 
     const div = document.createElement('div');
     div.className = `message ${isMe ? 'me' : 'opponent'}`;
+    div.dataset.id = msg.id; // Store ID for deletion
     
     // Format time
     const date = new Date(msg.created_at);
@@ -1606,9 +1624,38 @@ document.addEventListener('click', (e) => {
     const sidebar = document.getElementById('chat-sidebar');
     // Check if chat is open
     if (sidebar.classList.contains('open')) {
-        // Check if click is outside sidebar AND not on a toggle button
-        if (!sidebar.contains(e.target) && !e.target.closest('[onclick="toggleChat()"]')) {
+        // Check if click is outside sidebar AND not on a toggle button AND not inside a modal
+        if (!sidebar.contains(e.target) && 
+            !e.target.closest('[onclick="toggleChat()"]') && 
+            !e.target.closest('.modal')) {
             toggleChat();
         }
     }
 });
+
+function openClearChatModal() {
+    openModal('clear-chat-modal');
+}
+
+async function confirmClearChat() {
+    if (!supabaseClient) return;
+    
+    try {
+        const { error } = await supabaseClient
+            .from('chess_chat')
+            .delete()
+            .eq('game_id', GAME_ID);
+            
+        if (error) throw error;
+        
+        // Clear local UI immediately (backup in case realtime is slow)
+        const container = document.getElementById('chat-messages');
+        container.innerHTML = '<div class="chat-empty">Aucun message...</div>';
+        
+        closeModal('clear-chat-modal');
+        
+    } catch (error) {
+        console.error('Erreur suppression chat:', error);
+        alert('Erreur lors de la suppression des messages.');
+    }
+}

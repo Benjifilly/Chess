@@ -236,9 +236,14 @@
     <div id="chat-sidebar" class="chat-sidebar">
         <div class="chat-header">
             <h3>Chat</h3>
-            <button class="icon-btn" onclick="toggleChat()">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-            </button>
+            <div style="display: flex; gap: 10px;">
+                <button class="icon-btn" onclick="openClearChatModal()" title="Effacer le chat" style="color: #ff6b6b;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                </button>
+                <button class="icon-btn" onclick="toggleChat()">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
         </div>
         <div id="chat-messages" class="chat-messages">
             <!-- Messages will appear here -->
@@ -252,6 +257,18 @@
                         <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
                     </svg>
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Clear Chat Modal -->
+    <div id="clear-chat-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2>Effacer le chat ?</h2>
+            <p>Voulez-vous vraiment supprimer tous les messages de cette partie ?</p>
+            <div class="modal-actions">
+                <button onclick="confirmClearChat()" style="background: #ff6b6b;">Effacer</button>
+                <button class="cancel-btn" onclick="closeModal('clear-chat-modal')">Annuler</button>
             </div>
         </div>
     </div>
