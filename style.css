@@ -655,9 +655,6 @@ footer {
 }
 
 @media all and (display-mode: standalone) {
-    footer {
-        padding-bottom: env(safe-area-inset-bottom, 0) !important;
-    }
     .chat-input-area {
         padding-bottom: max(20px, env(safe-area-inset-bottom));
     }
