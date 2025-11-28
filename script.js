@@ -156,15 +156,17 @@ function checkLogin() {
 function loadTheme() {
     const savedTheme = localStorage.getItem('chess_theme') || 'dark';
     if (savedTheme === 'custom') {
-        document.body.setAttribute('data-theme', 'custom');
+        document.documentElement.setAttribute('data-theme', 'custom');
         loadCustomColors();
     } else {
-        document.body.setAttribute('data-theme', savedTheme);
+        document.documentElement.setAttribute('data-theme', savedTheme);
     }
+    // Ensure meta theme-color matches current CSS variables on load
+    updateThemeColor();
 }
 
 function setTheme(theme) {
-    document.body.setAttribute('data-theme', theme);
+    document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('chess_theme', theme);
     
     // Clean up custom inline styles if not custom

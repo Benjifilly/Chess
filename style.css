@@ -40,7 +40,9 @@
 
 html {
     overflow: hidden;
-    height: 100%;
+    /* Prefer the small viewport unit on modern iOS, then fall back */
+    height: 100svh;
+    height: 100dvh;
     height: -webkit-fill-available;
     position: fixed;
     width: 100%;
@@ -54,7 +56,8 @@ body {
     background-color: var(--bg-color);
     color: var(--text-color);
     font-family: 'Fredoka', sans-serif;
-    min-height: 100%;
+    min-height: 100svh;
+    min-height: 100dvh;
     min-height: -webkit-fill-available;
     width: 100%;
     display: flex;
