@@ -1293,7 +1293,8 @@ footer {
 }
 
 .chat-header {
-    padding: 30px 25px;
+    padding: 20px 25px;
+    padding-top: calc(20px + env(safe-area-inset-top));
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -1402,10 +1403,10 @@ footer {
 }
 
 .chat-input-area {
-    padding: 20px 25px;
+    padding: 15px 25px;
     position: relative;
     display: block;
-    padding-bottom: calc(20px + env(safe-area-inset-bottom));
+    padding-bottom: calc(15px + env(safe-area-inset-bottom));
     background: rgba(0,0,0,0.05);
     backdrop-filter: blur(10px);
     border-top: 1px solid rgba(255,255,255,0.05);
