@@ -3,7 +3,6 @@ let supabaseClient = null;
 
 // Configuration Jeu
 const GAME_ID = CONFIG.GAME_ID; // ID unique pour la partie
-// Hashes SHA-256 des mots de passe (avec sel)
 const SALT = 'ChessDuo_Salt_2024!';
 const PLAYER_HASHES = {
     '450b02e834204bad2503ee356eeb190e92ad1ada765e69e058e094fa39b45fe0': 'Benji',
@@ -475,6 +474,7 @@ async function initGame() {
 
     // Écouter les changements en temps réel
     setupRealtimeSubscription();
+    setupChatSubscription(); // Add Chat Subscription
 }
 
 function setupRealtimeSubscription() {
@@ -1381,3 +1381,234 @@ document.addEventListener('visibilitychange', async () => {
 // History Buttons
 document.getElementById('btn-prev').addEventListener('click', () => navigateHistory(-1));
 document.getElementById('btn-next').addEventListener('click', () => navigateHistory(1));
+
+// --- CHAT SYSTEM ---
+
+function toggleChat() {
+    const sidebar = document.getElementById('chat-sidebar');
+    sidebar.classList.toggle('open');
+    
+    // Clear badge when opening
+    if (sidebar.classList.contains('open')) {
+        document.getElementById('chat-badge').classList.add('hidden');
+        scrollToBottom();
+    }
+}
+
+async function sendChatMessage() {
+    const input = document.getElementById('chat-input');
+    const message = input.value.trim();
+    
+    if (!message || !supabaseClient) return;
+    
+    input.value = ''; // Clear input immediately
+    
+    // Hide button immediately
+    const btn = document.getElementById('chat-send-btn');
+    if (btn) btn.classList.remove('visible');
+    
+    try {
+        await supabaseClient
+            .from('chess_chat')
+            .insert([
+                { 
+                    game_id: GAME_ID, 
+                    sender: myName, 
+                    message: message 
+                }
+            ]);
+    } catch (error) {
+        console.error('Erreur envoi message:', error);
+    }
+}
+
+// Allow Enter key to send
+document.getElementById('chat-input').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') sendChatMessage();
+});
+
+function setupChatSubscription() {
+    if (!supabaseClient) return;
+
+    // Load existing messages
+    loadChatHistory();
+
+    // Subscribe to new messages
+    supabaseClient
+        .channel('chess_chat_room')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chess_chat', filter: `game_id=eq.${GAME_ID}` }, payload => {
+            displayMessage(payload.new, false);
+        })
+        .subscribe();
+}
+
+async function loadChatHistory() {
+    try {
+        const { data, error } = await supabaseClient
+            .from('chess_chat')
+            .select('*')
+            .eq('game_id', GAME_ID)
+            .order('created_at', { ascending: true });
+            
+        if (data) {
+            const container = document.getElementById('chat-messages');
+            container.innerHTML = ''; // Clear empty state
+            data.forEach(msg => displayMessage(msg, true));
+        }
+    } catch (e) {
+        console.error('Erreur chargement chat:', e);
+    }
+}
+
+function displayMessage(msg, isHistory = false) {
+    const container = document.getElementById('chat-messages');
+    const emptyState = container.querySelector('.chat-empty');
+    if (emptyState) emptyState.remove();
+    
+    const isMe = msg.sender === myName;
+
+    // Check for Emoji Reaction (Length <= 4 chars) - ONLY if live message
+    if (!isHistory && msg.message && msg.message.trim().length <= 4) {
+         showReaction(msg.sender, msg.message);
+    }
+
+    const div = document.createElement('div');
+    div.className = `message ${isMe ? 'me' : 'opponent'}`;
+    
+    // Format time
+    const date = new Date(msg.created_at);
+    const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    
+    div.innerHTML = `
+        <div class="message-content">${escapeHtml(msg.message)}</div>
+        <div class="message-time">${timeStr}</div>
+    `;
+    
+    container.appendChild(div);
+    scrollToBottom();
+    
+    // Show badge if chat is closed and message is not from me AND it's a new message
+    const sidebar = document.getElementById('chat-sidebar');
+    if (!isHistory && !sidebar.classList.contains('open') && !isMe) {
+        document.getElementById('chat-badge').classList.remove('hidden');
+    }
+}
+
+function showReaction(sender, emoji) {
+    const isMe = sender === myName;
+    const reactionEl = document.getElementById(isMe ? 'my-reaction' : 'opponent-reaction');
+    
+    if (reactionEl) {
+        // Clear previous timeouts
+        if (reactionEl.exitTimeout) clearTimeout(reactionEl.exitTimeout);
+        if (reactionEl.clearTimeout) clearTimeout(reactionEl.clearTimeout);
+
+        reactionEl.textContent = emoji;
+        
+        // Reset animation classes
+        reactionEl.classList.remove('exiting');
+        reactionEl.classList.remove('entering');
+        
+        // Trigger reflow
+        void reactionEl.offsetWidth; 
+        
+        // Start entrance animation
+        reactionEl.classList.add('entering');
+        
+        // Schedule exit animation (at 6.5s)
+        reactionEl.exitTimeout = setTimeout(() => {
+            reactionEl.classList.remove('entering');
+            reactionEl.classList.add('exiting');
+        }, 6500);
+
+        // Clear text after exit animation (at 7s)
+        reactionEl.clearTimeout = setTimeout(() => {
+            reactionEl.textContent = '';
+            reactionEl.classList.remove('exiting');
+        }, 7000);
+    }
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function scrollToBottom() {
+    const container = document.getElementById('chat-messages');
+    container.scrollTop = container.scrollHeight;
+}
+
+// --- SWIPE GESTURES FOR CHAT ---
+
+let touchStartX = 0;
+let touchStartY = 0;
+
+document.addEventListener('touchstart', (e) => {
+    touchStartX = e.changedTouches[0].screenX;
+    touchStartY = e.changedTouches[0].screenY;
+}, { passive: false });
+
+document.addEventListener('touchend', (e) => {
+    const touchEndX = e.changedTouches[0].screenX;
+    const touchEndY = e.changedTouches[0].screenY;
+    
+    handleSwipe(touchStartX, touchStartY, touchEndX, touchEndY);
+}, { passive: false });
+
+function handleSwipe(startX, startY, endX, endY) {
+    const diffX = endX - startX;
+    const diffY = endY - touchStartY;
+    
+    // Check if horizontal swipe is dominant
+    if (Math.abs(diffX) > Math.abs(diffY)) {
+        // Threshold for swipe
+        if (Math.abs(diffX) > 50) {
+            const sidebar = document.getElementById('chat-sidebar');
+            
+            // Swipe Right (Left -> Right) -> Open Chat
+            if (diffX > 0) {
+                // Only if starting from the left edge (optional, but better UX to avoid accidental swipes)
+                // But user asked "swipe right to open", so let's be generous.
+                // Check if we are not dragging a piece (handled in touchmove)
+                if (!activeTouchPiece && !sidebar.classList.contains('open')) {
+                    toggleChat();
+                }
+            }
+            // Swipe Left (Right -> Left) -> Close Chat
+            else if (diffX < 0) {
+                if (sidebar.classList.contains('open')) {
+                    toggleChat();
+                }
+            }
+        }
+    }
+}
+
+// Chat Input Monitor for Button Visibility
+const chatInputEl = document.getElementById('chat-input');
+if (chatInputEl) {
+    chatInputEl.addEventListener('input', function() {
+        const btn = document.getElementById('chat-send-btn');
+        if (btn) {
+            if (this.value.trim().length > 0) {
+                btn.classList.add('visible');
+            } else {
+                btn.classList.remove('visible');
+            }
+        }
+    });
+}
+
+// Close chat when clicking outside
+document.addEventListener('click', (e) => {
+    const sidebar = document.getElementById('chat-sidebar');
+    // Check if chat is open
+    if (sidebar.classList.contains('open')) {
+        // Check if click is outside sidebar AND not on a toggle button
+        if (!sidebar.contains(e.target) && !e.target.closest('[onclick="toggleChat()"]')) {
+            toggleChat();
+        }
+    }
+});

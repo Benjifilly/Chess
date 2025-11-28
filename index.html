@@ -164,10 +164,17 @@
                 <span id="opponent-name">Adversaire</span>
                 <span id="opponent-timer" class="timer">--:--</span>
                 <div class="indicator" id="opponent-indicator"></div>
+                <div id="opponent-reaction" class="reaction-emoji"></div>
             </div>
             
             <!-- Settings Button (Moved inside Header) -->
-            <div class="settings-fixed-container">
+            <div class="settings-fixed-container" style="display: flex; gap: 10px;">
+                <button class="settings-btn" onclick="toggleChat()" style="position: relative;">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+                    </svg>
+                    <span id="chat-badge" class="hidden" style="position: absolute; top: -2px; right: -2px; width: 10px; height: 10px; background: #ff6b6b; border-radius: 50%; border: 2px solid var(--card-bg);"></span>
+                </button>
                 <button class="settings-btn" onclick="toggleDropdown()">⋮</button>
                 <div id="settings-dropdown" class="dropdown">
                     <div class="dropdown-item" onclick="openSettings()">
@@ -202,6 +209,7 @@
                     <span id="my-name">Moi</span>
                     <span id="my-timer" class="timer">--:--</span>
                     <div class="indicator" id="my-indicator"></div>
+                    <div id="my-reaction" class="reaction-emoji"></div>
                 </div>
                 <div class="history-controls">
                     <button id="btn-prev" class="icon-btn" title="Coup précédent">
@@ -222,6 +230,30 @@
             </div>
             <p id="game-status">En attente...</p>
         </footer>
+    </div>
+
+    <!-- Chat Sidebar -->
+    <div id="chat-sidebar" class="chat-sidebar">
+        <div class="chat-header">
+            <h3>Chat</h3>
+            <button class="icon-btn" onclick="toggleChat()">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+        </div>
+        <div id="chat-messages" class="chat-messages">
+            <!-- Messages will appear here -->
+            <div class="chat-empty">Aucun message...</div>
+        </div>
+        <div class="chat-input-area">
+            <div class="chat-input-wrapper">
+                <input type="text" id="chat-input" placeholder="Message..." autocomplete="off">
+                <button id="chat-send-btn" onclick="sendChatMessage()">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg" style="margin-left: 2px;">
+                        <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
     </div>
 
     <script src="script.js"></script>

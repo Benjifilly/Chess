@@ -59,7 +59,7 @@ self.addEventListener('fetch', (event) => {
             if (cachedResponse) {
                 return cachedResponse;
             }
-            // Fallback for navigation (e.g. /game -> index.html)
+            // Fallback for navigation
             if (event.request.mode === 'navigate') {
                 return caches.match('./index.html');
             }
