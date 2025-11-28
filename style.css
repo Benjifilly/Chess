@@ -649,6 +649,9 @@ footer {
     footer {
         padding-bottom: 0;
     }
+    .chat-input-area {
+        padding-bottom: 20px;
+    }
 }
 
 .player-status {
@@ -663,20 +666,29 @@ footer {
     padding: 8px 15px;
     border-radius: 15px;
     box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-    min-width: 120px;
     width: fit-content;
+    transition: all 0.3s ease;
 }
 
 .reaction-emoji {
     font-size: 24px;
-    margin: 0 5px;
-    min-width: 24px;
+    margin: 0;
+    width: 0;
+    min-width: 0;
     height: 24px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    opacity: 0; /* Hidden by default */
+    opacity: 0;
     transform: scale(0);
+    overflow: hidden;
+    transition: width 0.3s ease, margin 0.3s ease;
+}
+
+.reaction-emoji:not(:empty) {
+    width: 24px;
+    min-width: 24px;
+    margin: 0 5px;
 }
 
 .reaction-emoji.entering {
@@ -1233,6 +1245,7 @@ footer {
     top: 0;
     left: 0;
     height: 100%;
+    height: 100dvh;
     width: 85%;
     max-width: 360px;
     
