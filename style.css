@@ -661,6 +661,7 @@ footer {
         padding-bottom: env(safe-area-inset-bottom, 0);
     }
     .chat-input-area {
+        height: max-content;
         padding-bottom: max(5px, env(safe-area-inset-bottom));
     }
 }

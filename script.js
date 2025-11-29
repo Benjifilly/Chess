@@ -1404,23 +1404,15 @@ document.getElementById('reset-btn').addEventListener('click', () => {
     openNewGameModal();
 });
 
-// Service Worker Registration (disabled on localhost/dev to avoid stale caches)
-const isLocalhost = ['localhost', '127.0.0.1', ''].includes(window.location.hostname) || window.location.protocol === 'file:';
-const shouldRegisterSW = 'serviceWorker' in navigator && window.location.protocol === 'https:' && !isLocalhost;
-
-if (shouldRegisterSW) {
-    window.addEventListener('load', () => {
-        navigator.serviceWorker.register('sw.js').catch(err => {
-            console.error('Service Worker registration failed:', err);
-        });
+// Service Worker Management
+// Désinscription forcée du Service Worker pour éviter le cache agressif
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations().then(registrations => {
+        for(let registration of registrations) {
+            registration.unregister();
+            console.log('Service Worker désinscrit');
+        }
     });
-} else {
-    // Désinscrire tout SW existant en dev pour éviter les erreurs de fetch
-    if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistrations().then(registrations => {
-            registrations.forEach(reg => reg.unregister());
-        });
-    }
 }
 
 // Gestion de la visibilité (PWA/Mobile) pour rafraîchir l'état au retour
