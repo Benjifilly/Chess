@@ -40,10 +40,6 @@
 
 html {
     overflow: hidden;
-    /* PWA Chin Fix: min-height + padding hack */
-    min-height: calc(100% + env(safe-area-inset-top));
-    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
-    
     height: 100%;
     position: fixed;
     width: 100%;
