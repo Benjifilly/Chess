@@ -28,6 +28,40 @@ let timeControl = 0; // 0 = infinite
 let draggedPiece = null;
 let sourceSquare = null;
 
+// Audio assets
+const AUDIO_FILES = {
+    move: 'sound/move-self.mp3',
+    capture: 'sound/capture.mp3'
+};
+const SOUNDS = {};
+
+function loadSounds() {
+    try {
+        Object.keys(AUDIO_FILES).forEach(key => {
+            const audio = new Audio(AUDIO_FILES[key]);
+            audio.preload = 'auto';
+            // Try to load; browsers may block autoplay until user interaction
+            audio.load();
+            SOUNDS[key] = audio;
+        });
+    } catch (e) {
+        console.warn('Erreur preload sons:', e);
+    }
+}
+
+function playSound(name) {
+    const a = SOUNDS[name];
+    if (!a) return;
+    try {
+        // Restart sound
+        a.currentTime = 0;
+        const p = a.play();
+        if (p && p.catch) p.catch(() => {});
+    } catch (e) {
+        // Ignore play errors (autoplay policies)
+    }
+}
+
 // History Navigation
 let viewIndex = null; // null = live, -1 = start, 0 = after 1st move...
 
@@ -139,6 +173,8 @@ function initializeApp() {
         
         checkLogin();
         loadTheme();
+        // Précharger les sons (si disponibles)
+        loadSounds();
     } catch (error) {
         console.error('Erreur initialisation:', error);
     }
@@ -988,8 +1024,18 @@ function handleTouchEnd(e) {
 
 async function makeMove(from, to) {
     const move = game.move({ from, to, promotion: 'q' }); // Promotion auto en Reine pour simplifier
-    
+
     if (move) {
+        // Play move or capture sound
+        try {
+            if (move.flags && (move.flags.includes('c') || move.flags.includes('e'))) {
+                playSound('capture');
+            } else {
+                playSound('move');
+            }
+        } catch (e) {
+            // ignore
+        }
         selectedSquare = null;
         lastMove = { from, to }; // Update local last move immediately
         
@@ -1224,6 +1270,8 @@ function showGameOver(winner) {
         
         if (iWon) {
             triggerConfetti();
+            // Victory sound
+            try { playSound('capture'); } catch(e) {}
         }
     }
 }
