@@ -1660,15 +1660,24 @@ function openClearChatModal() {
 async function confirmClearChat() {
     if (!supabaseClient) return;
     
+    const confirmBtn = document.querySelector('#clear-chat-modal .modal-actions button:first-child');
+    const originalText = confirmBtn.innerText;
+    confirmBtn.innerText = "Patientez...";
+    confirmBtn.disabled = true;
+
     try {
-        const { error } = await supabaseClient
+        // Note: Pour que cela fonctionne, la politique RLS (Row Level Security) de Supabase
+        // doit autoriser le DELETE pour le rôle 'anon' ou 'public' sur la table 'chess_chat'.
+        const { error, count } = await supabaseClient
             .from('chess_chat')
-            .delete()
+            .delete({ count: 'exact' })
             .eq('game_id', GAME_ID);
             
         if (error) throw error;
         
-        // Clear local UI immediately (backup in case realtime is slow)
+        console.log(`Chat effacé : ${count} messages supprimés.`);
+        
+        // Clear local UI immediately
         const container = document.getElementById('chat-messages');
         container.innerHTML = '<div class="chat-empty">Aucun message...</div>';
         
@@ -1676,6 +1685,9 @@ async function confirmClearChat() {
         
     } catch (error) {
         console.error('Erreur suppression chat:', error);
-        alert('Erreur lors de la suppression des messages.');
+        alert('Erreur lors de la suppression : Vérifiez les permissions (RLS) sur Supabase.');
+    } finally {
+        confirmBtn.innerText = originalText;
+        confirmBtn.disabled = false;
     }
 }
