@@ -763,21 +763,23 @@ header {
     justify-content: space-between;
     align-items: center;
     padding: 8px 15px;
-    padding-top: calc(15px + env(safe-area-inset-top));
+    padding-top: calc(15px + env(safe-area-inset-top, 0px));
     background: transparent;
     flex-shrink: 0;
 }
 
 footer {
     padding: 15px 15px;
-    padding-bottom: max(15px, env(safe-area-inset-bottom));
+    padding-bottom: calc(15px + env(safe-area-inset-bottom, 0px));
     background: transparent;
     flex-shrink: 0;
 }
 
 @media all and (display-mode: standalone) {
+
+    /* No longer needed here as html handles padding now via env */
     footer {
-        padding-bottom: max(15px, env(safe-area-inset-bottom, 0px));
+        padding-bottom: calc(15px + env(safe-area-inset-bottom, 0px));
     }
 
     .chat-input-area {
