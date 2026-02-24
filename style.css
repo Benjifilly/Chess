@@ -59,10 +59,10 @@ body {
     flex-direction: column;
     overflow: hidden;
     position: fixed;
-    top: env(safe-area-inset-top, 0px);
+    top: 0;
     left: 0;
     right: 0;
-    bottom: env(safe-area-inset-bottom, 0px);
+    bottom: 0;
     transition: background-color 0.3s, color 0.3s;
     -webkit-overflow-scrolling: touch;
     touch-action: none;
@@ -777,12 +777,12 @@ footer {
 
 @media all and (display-mode: standalone) {
     footer {
-        padding-bottom: env(safe-area-inset-bottom, 0);
+        padding-bottom: max(15px, env(safe-area-inset-bottom, 0px));
     }
 
     .chat-input-area {
         height: max-content;
-        padding-bottom: 15px !important;
+        padding-bottom: calc(15px + env(safe-area-inset-bottom, 0px)) !important;
     }
 }
 
