@@ -1125,10 +1125,6 @@ function handleTouchStart(e, square) {
 
     const isPremove = game.turn() !== myColor;
     sourceSquare = square;
-    selectedSquare = square;
-    if (isPremove) {
-        selectedSquare = square;
-    }
 
     const touch = e.touches[0];
     const target = e.target;
@@ -1201,6 +1197,10 @@ function handleTouchEnd(e) {
             } else {
                 makeMove(sourceSquare, targetSquare);
             }
+        } else {
+            selectedSquare = sourceSquare;
+            if (game.turn() === myColor) highlightMoves(sourceSquare);
+            else handlePremoveClick(sourceSquare);
         }
     }
 

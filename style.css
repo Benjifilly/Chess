@@ -47,18 +47,6 @@ html {
     overscroll-behavior: none;
 }
 
-html::after {
-    content: '';
-    display: block;
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: env(safe-area-inset-bottom, 0px);
-    background-color: var(--bg-color);
-    z-index: 9999;
-}
-
 body {
     margin: 0;
     padding: 0;
@@ -71,10 +59,10 @@ body {
     flex-direction: column;
     overflow: hidden;
     position: fixed;
-    top: 0;
+    top: env(safe-area-inset-top, 0px);
     left: 0;
     right: 0;
-    bottom: 0;
+    bottom: env(safe-area-inset-bottom, 0px);
     transition: background-color 0.3s, color 0.3s;
     -webkit-overflow-scrolling: touch;
     touch-action: none;
