@@ -47,10 +47,21 @@ html {
     overscroll-behavior: none;
 }
 
+html::after {
+    content: '';
+    display: block;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: env(safe-area-inset-bottom, 0px);
+    background-color: var(--bg-color);
+    z-index: 9999;
+}
+
 body {
     margin: 0;
     padding: 0;
-    padding-bottom: env(safe-area-inset-bottom, 0px);
     background-color: var(--bg-color);
     color: var(--text-color);
     font-family: 'Fredoka', sans-serif;
@@ -811,28 +822,73 @@ footer {
     align-items: center;
     justify-content: center;
     gap: 2px;
+    max-width: 0;
     opacity: 0;
     transform: scale(0);
+    transform-origin: left center;
     overflow: hidden;
-    transition: margin 0.3s ease, opacity 0.3s ease;
+    transition: max-width 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+        opacity 0.3s ease,
+        transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+        margin 0.3s ease;
 }
 
-.reaction-emoji:not(:empty) {
+.reaction-emoji.entering {
+    max-width: 200px;
+    opacity: 1;
+    transform: scale(1);
     margin: 0 5px;
+    overflow: visible;
+}
+
+.reaction-emoji.exiting {
+    max-width: 0;
+    opacity: 0;
+    transform: scale(0);
+    margin: 0;
+    overflow: hidden;
+    transition: max-width 0.35s ease-in,
+        opacity 0.25s ease-in,
+        transform 0.3s ease-in,
+        margin 0.3s ease;
 }
 
 .reaction-single {
     display: inline-block;
     font-size: 22px;
     line-height: 1;
+    opacity: 0;
+    transform: scale(0);
 }
 
-.reaction-emoji.entering {
-    animation: popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+.reaction-emoji.entering .reaction-single {
+    animation: popIn 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
 }
 
-.reaction-emoji.exiting {
-    animation: popOut 0.5s ease-in forwards;
+.reaction-emoji.entering .reaction-single:nth-child(1) {
+    animation-delay: 0.1s;
+}
+
+.reaction-emoji.entering .reaction-single:nth-child(2) {
+    animation-delay: 0.18s;
+}
+
+.reaction-emoji.entering .reaction-single:nth-child(3) {
+    animation-delay: 0.26s;
+}
+
+.reaction-emoji.entering .reaction-single:nth-child(4) {
+    animation-delay: 0.34s;
+}
+
+.reaction-emoji.entering .reaction-single:nth-child(5) {
+    animation-delay: 0.42s;
+}
+
+.reaction-emoji.exiting .reaction-single {
+    animation: none;
+    opacity: 1;
+    transform: scale(1);
 }
 
 @keyframes popOut {

@@ -998,7 +998,6 @@ function handlePointerDown(e, square) {
 
     pointerDragPiece = e.target;
     sourceSquare = square;
-    selectedSquare = square;
 
     if (!isPremove) highlightMoves(square);
 
@@ -1062,6 +1061,10 @@ function onPointerDragUp(e) {
             } else {
                 makeMove(sourceSquare, targetSquare);
             }
+        } else {
+            selectedSquare = sourceSquare;
+            if (game.turn() === myColor) highlightMoves(sourceSquare);
+            else handlePremoveClick(sourceSquare);
         }
     }
 
@@ -1783,28 +1786,32 @@ function displayMessage(msg, isHistory = false) {
     }
 }
 
-const EMOJI_REGEX = /\p{Emoji_Presentation}|\p{Emoji}\uFE0F|[\u{1F1E0}-\u{1F1FF}]{2}/gu;
-const EMOJI_ONLY_REGEX = /^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F|\p{Emoji_Modifier_Base}\p{Emoji_Modifier}?|[\u{1F1E0}-\u{1F1FF}]{2}|\u200D|\uFE0F|[\u{E0020}-\u{E007F}]|\u{E0001}|[\u{1F3FB}-\u{1F3FF}])+$/u;
+const EMOJI_GRAPHEME_TEST = /^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F|\p{Emoji_Modifier_Base}\p{Emoji_Modifier}?|[\u{1F1E0}-\u{1F1FF}]{2}|\u200D|\uFE0F|[\u{E0020}-\u{E007F}]|\u{E0001}|[\u{1F3FB}-\u{1F3FF}]|[\u{FE00}-\u{FE0F}]|\u20E3|[\u{E0061}-\u{E007A}]|[\u{1FA00}-\u{1FAFF}]|[\u{1F900}-\u{1F9FF}]|[\u{1F600}-\u{1F64F}]|[\u{1F680}-\u{1F6FF}]|[\u{2600}-\u{27BF}]|[\u{2300}-\u{23FF}]|[\u{2B50}]|[\u{200D}])+$/u;
 
 function isOnlyEmojis(str) {
     if (!str || str.length === 0) return false;
     const cleaned = str.replace(/\s/g, '');
-    if (cleaned.length === 0) return false;
-    return EMOJI_ONLY_REGEX.test(cleaned) && cleaned.length <= 20;
+    if (cleaned.length === 0 || cleaned.length > 30) return false;
+
+    if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+        const seg = new Intl.Segmenter('en', { granularity: 'grapheme' });
+        const graphemes = [...seg.segment(cleaned)].map(s => s.segment);
+        if (graphemes.length === 0 || graphemes.length > 8) return false;
+        return graphemes.every(g => EMOJI_GRAPHEME_TEST.test(g));
+    }
+
+    return EMOJI_GRAPHEME_TEST.test(cleaned);
 }
 
 function extractEmojis(str) {
-    const segmenter = typeof Intl !== 'undefined' && Intl.Segmenter
-        ? new Intl.Segmenter('en', { granularity: 'grapheme' })
-        : null;
-
-    if (segmenter) {
-        return [...segmenter.segment(str.replace(/\s/g, ''))]
+    const cleaned = str.replace(/\s/g, '');
+    if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+        const seg = new Intl.Segmenter('en', { granularity: 'grapheme' });
+        return [...seg.segment(cleaned)]
             .map(s => s.segment)
-            .filter(s => EMOJI_ONLY_REGEX.test(s));
+            .filter(s => EMOJI_GRAPHEME_TEST.test(s));
     }
-
-    return str.replace(/\s/g, '').match(EMOJI_REGEX) || [];
+    return [...cleaned];
 }
 
 function showReaction(sender, emojiStr) {
@@ -1816,10 +1823,12 @@ function showReaction(sender, emojiStr) {
     if (reactionEl.clearTimeout) clearTimeout(reactionEl.clearTimeout);
 
     const emojis = extractEmojis(emojiStr);
-    const maxDisplay = 5;
-    const toShow = emojis.slice(0, maxDisplay);
+    const toShow = emojis.slice(0, 5);
 
     reactionEl.innerHTML = '';
+    reactionEl.classList.remove('exiting', 'entering');
+    void reactionEl.offsetWidth;
+
     toShow.forEach(e => {
         const span = document.createElement('span');
         span.textContent = e;
@@ -1827,9 +1836,9 @@ function showReaction(sender, emojiStr) {
         reactionEl.appendChild(span);
     });
 
-    reactionEl.classList.remove('exiting', 'entering');
-    void reactionEl.offsetWidth;
-    reactionEl.classList.add('entering');
+    requestAnimationFrame(() => {
+        reactionEl.classList.add('entering');
+    });
 
     reactionEl.exitTimeout = setTimeout(() => {
         reactionEl.classList.remove('entering');
