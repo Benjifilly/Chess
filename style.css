@@ -635,40 +635,6 @@ button#login-btn:hover {
     transform: scale(0.9);
 }
 
-/* Engine Options */
-.engine-options {
-    display: flex;
-    gap: 8px;
-    width: 100%;
-}
-
-.engine-btn {
-    flex: 1;
-    padding: 10px 6px;
-    border-radius: 10px;
-    border: 2px solid rgba(255, 255, 255, 0.1);
-    background: rgba(255, 255, 255, 0.05);
-    color: rgba(255, 255, 255, 0.6);
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    box-shadow: none;
-    font-family: 'Fredoka', sans-serif;
-}
-
-.engine-btn:hover {
-    border-color: rgba(255, 255, 255, 0.2);
-    background: rgba(255, 255, 255, 0.08);
-    filter: none;
-}
-
-.engine-btn.selected {
-    border-color: var(--accent);
-    background: rgba(136, 176, 75, 0.15);
-    color: white;
-}
-
 /* Preset Buttons */
 .preset-options {
     display: grid;

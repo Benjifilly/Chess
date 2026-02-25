@@ -216,45 +216,6 @@
         <div class="modal-content">
             <h2>Réglages Avancés</h2>
 
-            <div
-                style="display: flex; flex-direction: column; gap: 10px; align-items: flex-start; margin-bottom: 20px;">
-                <label style="font-weight: 600; font-size: 15px;">Moteur :</label>
-                <div class="engine-options" id="engine-options">
-                    <button class="engine-btn selected" data-engine="chess-api" onclick="selectEngine('chess-api')">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M12 2L2 7l10 5 10-5-10-5z" />
-                            <path d="M2 17l10 5 10-5" />
-                            <path d="M2 12l10 5 10-5" />
-                        </svg>
-                        Stockfish
-                    </button>
-                    <button class="engine-btn" data-engine="lichess" onclick="selectEngine('lichess')">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M8 16s6-2 6-6c0-2-1-3-2-4l1-3-3 1c-1-1-2-1-3-1-3 0-5 3-5 6 0 4 3 7 6 7z" />
-                            <path d="M9.5 9.5L7 12" />
-                            <path d="M14 22H2v-2c0-2 2-4 6-4h0c4 0 6 2 6 4v2z" />
-                        </svg>
-                        Lichess
-                    </button>
-                    <button class="engine-btn" data-engine="random-weighted" onclick="selectEngine('random-weighted')">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <rect x="2" y="2" width="20" height="20" rx="3" />
-                            <circle cx="8" cy="8" r="1.5" fill="currentColor" />
-                            <circle cx="16" cy="8" r="1.5" fill="currentColor" />
-                            <circle cx="8" cy="16" r="1.5" fill="currentColor" />
-                            <circle cx="16" cy="16" r="1.5" fill="currentColor" />
-                            <circle cx="12" cy="12" r="1.5" fill="currentColor" />
-                        </svg>
-                        Aléatoire
-                    </button>
-                </div>
-                <p id="engine-desc" style="font-size: 12px; opacity: 0.6; margin: 0;">Stockfish via chess-api.com
-                    (puissant)</p>
-            </div>
-
             <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px;">
                 <label style="font-weight: 600; font-size: 15px;">Niveau :</label>
                 <div class="preset-options">

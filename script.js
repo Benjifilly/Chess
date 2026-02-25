@@ -28,8 +28,45 @@ let timeControl = 0;
 
 let gameMode = 'duo';
 let botDifficulty = 1;
-let botThinking = false;
-let botEngine = 'chess-api';
+let isBotThinking = false; // Mutex: true while a Stockfish search is in progress
+
+// Stockfish Web Worker (local engine)
+const stockfish = new Worker('lib/stockfish.js');
+let stockfishResolve = null; // Promise resolver for current move request
+let stockfishReady = false; // true once Stockfish has sent 'uciok'
+
+stockfish.onmessage = function (e) {
+    const line = typeof e.data === 'string' ? e.data : '';
+    if (!line) return;
+
+    // --- Intelligent UCI message filtering ---
+    // Only process game-relevant messages; silently ignore engine noise.
+    if (line.startsWith('bestmove')) {
+        const uciMove = line.split(' ')[1];
+        if (uciMove && uciMove !== '(none)' && stockfishResolve) {
+            const from = uciMove.substring(0, 2);
+            const to = uciMove.substring(2, 4);
+            const promotion = uciMove.length > 4 ? uciMove[4] : undefined;
+            console.log('Stockfish bestmove:', uciMove);
+            stockfishResolve({ from, to, promotion });
+            stockfishResolve = null;
+        } else if (stockfishResolve) {
+            // bestmove (none) — no legal move, resolve null
+            stockfishResolve(null);
+            stockfishResolve = null;
+        }
+        return;
+    }
+
+    // Synchronization tokens — used internally, no console output
+    if (line === 'uciok' || line === 'readyok') {
+        if (line === 'uciok') stockfishReady = true;
+        return;
+    }
+
+    // Silently ignore all other UCI messages:
+    // 'info ...', 'option ...', 'id ...', debug lines, etc.
+};
 
 // Drag Variables
 let sourceSquare = null;
@@ -64,7 +101,6 @@ function playSound(name) {
         const p = a.play();
         if (p && p.catch) p.catch(() => { });
     } catch (e) {
-        // Ignore play errors (autoplay policies)
     }
 }
 
@@ -396,6 +432,42 @@ function openHistoryModal() {
 function openNewGameModal() {
     closeModal('game-over-modal');
     newGameModal.classList.remove('hidden');
+
+    // Restore last-used settings from localStorage (or use defaults)
+    const saved = localStorage.getItem('chess_new_game_settings');
+    if (saved) {
+        try {
+            const s = JSON.parse(saved);
+            selectMode(s.mode || 'duo');
+            selectTime(typeof s.time === 'number' ? s.time : 5);
+            if (s.color) {
+                selectColor(s.color);
+            } else {
+                selectedColorChoice = null;
+                startGameBtn.disabled = true;
+                document.querySelectorAll('.color-option').forEach(el => el.classList.remove('selected'));
+            }
+            // Restore Elo / difficulty
+            if (typeof s.botEloOverride === 'number') {
+                botEloOverride = s.botEloOverride;
+                document.getElementById('elo-input').value = s.botEloOverride;
+            }
+            if (typeof s.botDifficulty === 'number') {
+                botDifficulty = s.botDifficulty;
+            }
+            // Update difficulty label
+            const el = document.getElementById('difficulty-value');
+            if (el) {
+                const presetMatch = [400, 800, 1500, 2500].includes(botEloOverride);
+                el.textContent = presetMatch ? DIFFICULTY_NAMES[Math.round(botDifficulty)] : (botEloOverride ? `Perso (${botEloOverride})` : DIFFICULTY_NAMES[Math.round(botDifficulty)]);
+            }
+            return;
+        } catch (e) {
+            // Ignore parse errors, fall through to defaults
+        }
+    }
+
+    // Defaults (first launch or corrupted data)
     selectedColorChoice = null;
     startGameBtn.disabled = true;
     document.querySelectorAll('.color-option').forEach(el => el.classList.remove('selected'));
@@ -416,19 +488,7 @@ function selectMode(mode) {
     }
 }
 
-const ENGINE_DESCRIPTIONS = {
-    'chess-api': 'Stockfish via chess-api.com (puissant)',
-    'lichess': 'Analyse Lichess cloud (moyen)',
-    'random-weighted': 'Coups aléatoires pondérés (facile)'
-};
 
-function selectEngine(engine) {
-    botEngine = engine;
-    document.querySelectorAll('.engine-btn').forEach(btn => {
-        btn.classList.toggle('selected', btn.dataset.engine === engine);
-    });
-    document.getElementById('engine-desc').textContent = ENGINE_DESCRIPTIONS[engine] || '';
-}
 
 const DIFFICULTY_NAMES = ['', 'Débutant', 'Facile', 'Intermédiaire', 'Avancé', 'Expert'];
 
@@ -535,6 +595,15 @@ async function confirmNewGame() {
 
     closeModal('new-game-modal');
 
+    // Persist new game settings to localStorage for next time
+    localStorage.setItem('chess_new_game_settings', JSON.stringify({
+        mode: gameMode,
+        color: selectedColorChoice,
+        time: selectedTimeChoice,
+        botDifficulty: botDifficulty,
+        botEloOverride: botEloOverride
+    }));
+
     let whitePlayerName = myName;
 
     if (gameMode === 'solo') {
@@ -554,7 +623,7 @@ async function confirmNewGame() {
     game.reset();
     lastMove = null;
     viewIndex = null;
-    botThinking = false;
+    isBotThinking = false;
 
     if (whitePlayerName === myName) {
         myColor = 'w';
@@ -590,9 +659,12 @@ async function confirmNewGame() {
                     white_player: whitePlayerName,
                     pgn: '',
                     white_time: whiteTimeRemaining,
-                    black_time: blackTimeRemaining,
                     last_move_ts: lastMoveTimestamp,
-                    time_control: timeControl
+                    time_control: timeControl,
+                    status: null,
+                    draw_offer: null,
+                    draw_rejected: null,
+                    resigned_by: null
                 })
                 .eq('id', GAME_ID);
         } catch (error) {
@@ -604,160 +676,58 @@ async function confirmNewGame() {
         makeBotMove();
     }
 }
-// --- BOT AI ENGINE (STOCKFISH API) ---
+// --- BOT AI ENGINE (LOCAL STOCKFISH WEB WORKER) ---
 
-async function getStockfishMove(fen, difficultyElo) {
-    try {
-        let fullFen = fen;
-        const fenParts = fen.split(' ');
-        if (fenParts.length < 6) {
-            if (fenParts.length === 4) fullFen += " 0 1";
-            else if (fenParts.length === 5) fullFen += " 1";
+/**
+ * Send UCI commands to Stockfish and return a Promise that resolves with the best move.
+ * Only one search can be active at a time (enforced by isBotThinking mutex in makeBotMove).
+ */
+function requestStockfishMove(fen, elo) {
+    return new Promise((resolve, reject) => {
+        // Safety: cancel any lingering previous request
+        if (stockfishResolve) {
+            stockfishResolve(null);
+            stockfishResolve = null;
         }
-
-        const response = await fetch('https://chess-api.com/v1', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                fen: fullFen,
-                maxDepth: 12,
-                elo: difficultyElo
-            })
-        });
-        const data = await response.json();
-
-        if (data && data.from && data.to) {
-            return { from: data.from, to: data.to, promotion: data.promotion || undefined };
-        }
-        console.error("Chess-api didn't return a valid bestmove:", data);
-    } catch (error) {
-        console.error("Error fetching move from chess-api:", error);
-    }
-
-    return getLocalAIMove(game, 2);
+        stockfishResolve = resolve;
+        stockfish.postMessage('uci');
+        stockfish.postMessage('setoption name UCI_LimitStrength value true');
+        stockfish.postMessage('setoption name UCI_Elo value ' + elo);
+        stockfish.postMessage('position fen ' + fen);
+        stockfish.postMessage('go movetime 1000');
+    });
 }
 
-async function getLichessMove(fen) {
-    try {
-        let fullFen = fen;
-        const fenParts = fen.split(' ');
-        if (fenParts.length < 6) {
-            if (fenParts.length === 4) fullFen += " 0 1";
-            else if (fenParts.length === 5) fullFen += " 1";
-        }
-
-        const response = await fetch(`https://lichess.org/api/cloud-eval?fen=${encodeURIComponent(fullFen)}&multiPv=1`, {
-            headers: { 'Accept': 'application/json' }
-        });
-        const data = await response.json();
-
-        if (data && data.pvs && data.pvs.length > 0) {
-            const bestLine = data.pvs[0].moves;
-            if (bestLine) {
-                const uciMove = bestLine.split(' ')[0];
-                const from = uciMove.substring(0, 2);
-                const to = uciMove.substring(2, 4);
-                const promotion = uciMove.length > 4 ? uciMove[4] : undefined;
-                return { from, to, promotion };
-            }
-        }
-    } catch (error) {
-        console.error("Error fetching move from Lichess:", error);
-    }
-
-    return getStockfishMove(fen, 800);
-}
-
-// LOCAL AI MINIMAX ENGINE
-const PIECE_VALUES = { p: 10, n: 30, b: 30, r: 50, q: 90, k: 900 };
-
-function evaluateBoard(gameInst) {
-    let score = 0;
-    const board = gameInst.board();
-    for (let i = 0; i < 8; i++) {
-        for (let j = 0; j < 8; j++) {
-            const square = board[i][j];
-            if (square) {
-                const val = PIECE_VALUES[square.type];
-                score += square.color === 'w' ? val : -val;
-            }
-        }
-    }
-    return score;
-}
-
-function getLocalAIMove(gameInst, depth) {
-    const moves = gameInst.moves({ verbose: true });
-    if (moves.length === 0) return null;
-
-    // Si la profondeur est faible, jouer de manière sous-optimale/aléatoire (niveau de base)
-    if (depth <= 1) {
-        return moves[Math.floor(Math.random() * moves.length)];
-    }
-
-    let bestMove = null;
-    let bestScore = gameInst.turn() === 'w' ? -Infinity : Infinity;
-
-    // Mélanger pour de la variété
-    moves.sort(() => Math.random() - 0.5);
-
-    for (const move of moves) {
-        gameInst.move(move.san);
-        let score = minimax(gameInst, depth - 1, -Infinity, Infinity, gameInst.turn() === 'w');
-        gameInst.undo();
-
-        if (gameInst.turn() === 'w') {
-            if (score > bestScore) { bestScore = score; bestMove = move; }
-        } else {
-            if (score < bestScore) { bestScore = score; bestMove = move; }
-        }
-    }
-    return bestMove || moves[0];
-}
-
-function minimax(gameInst, depth, alpha, beta, isMaximizing) {
-    if (depth === 0 || gameInst.game_over()) return evaluateBoard(gameInst);
-
-    const moves = gameInst.moves();
-    if (isMaximizing) {
-        let maxEval = -Infinity;
-        for (const move of moves) {
-            gameInst.move(move);
-            const ev = minimax(gameInst, depth - 1, alpha, beta, false);
-            gameInst.undo();
-            maxEval = Math.max(maxEval, ev);
-            alpha = Math.max(alpha, ev);
-            if (beta <= alpha) break;
-        }
-        return maxEval;
-    } else {
-        let minEval = Infinity;
-        for (const move of moves) {
-            gameInst.move(move);
-            const ev = minimax(gameInst, depth - 1, alpha, beta, true);
-            gameInst.undo();
-            minEval = Math.min(minEval, ev);
-            beta = Math.min(beta, ev);
-            if (beta <= alpha) break;
-        }
-        return minEval;
-    }
-}
-
+/**
+ * Main bot turn handler.
+ * Uses isBotThinking as a mutex to prevent concurrent Stockfish searches.
+ * No artificial setTimeout delays — Stockfish responds asynchronously via the Worker.
+ */
 async function makeBotMove() {
+    // Guard: only proceed if it's solo mode, bot's turn, game not over, and no search in progress
     if (gameMode !== 'solo' || game.turn() === myColor || game.game_over()) return;
+    if (isBotThinking) return; // Mutex: prevent concurrent searches
 
-    botThinking = true;
+    isBotThinking = true;
     updateStatus();
 
+    // Snapshot the turn color before the async search to detect stale results
+    const expectedTurn = game.turn();
+
     const failsafe = setTimeout(() => {
-        if (botThinking) {
+        if (isBotThinking) {
             console.warn('Bot failsafe: forçage coup aléatoire après timeout');
-            botThinking = false;
-            const moves = game.moves({ verbose: true });
-            if (moves.length > 0) {
-                const m = moves[Math.floor(Math.random() * moves.length)];
-                makeMove(m.from, m.to);
+            // Cancel the pending Stockfish request
+            stockfishResolve = null;
+            stockfish.postMessage('stop');
+            isBotThinking = false;
+            // Only play if it's still the bot's turn
+            if (game.turn() === expectedTurn && !game.game_over()) {
+                const moves = game.moves({ verbose: true });
+                if (moves.length > 0) {
+                    const m = moves[Math.floor(Math.random() * moves.length)];
+                    makeMove(m.from, m.to);
+                }
             }
             updateStatus();
             saveSoloState();
@@ -778,33 +748,21 @@ async function makeBotMove() {
             }
         }
 
-        let botMove = null;
+        // Clamp Elo to Stockfish's supported UCI_Elo range (1320-3190)
+        targetElo = Math.max(1320, Math.min(3190, targetElo));
 
-        // --- LOGIQUE MODULABLE ET SANS ERREUR POUR LES BAS NIVEAUX ---
-        if (targetElo < 1300) {
-            await new Promise(r => setTimeout(r, 400 + Math.random() * 500));
-            // depth 1 = nul, depth 2 = facile, depth 3 = ok
-            let depth = targetElo <= 400 ? 1 : (targetElo <= 800 ? 2 : 3);
-            botMove = getLocalAIMove(game, depth);
-        } else if (botEngine === 'random-weighted') {
-            await new Promise(r => setTimeout(r, 300 + Math.random() * 500));
-            botMove = getLocalAIMove(game, 1);
-        } else if (botEngine === 'lichess') {
-            botMove = await getLichessMove(game.fen());
-        } else {
-            botMove = await getStockfishMove(game.fen(), targetElo);
-        }
-
+        const botMove = await requestStockfishMove(game.fen(), targetElo);
         clearTimeout(failsafe);
 
-        if (botMove && botThinking) {
+        // Validate: only apply the move if it's still the bot's turn (guards against tab-switch race)
+        if (botMove && isBotThinking && game.turn() === expectedTurn && !game.game_over()) {
             await makeMove(botMove.from, botMove.to, botMove.promotion);
         }
     } catch (e) {
         console.error('Erreur bot:', e);
         clearTimeout(failsafe);
     } finally {
-        botThinking = false;
+        isBotThinking = false;
         updateStatus();
         saveSoloState();
     }
@@ -813,7 +771,7 @@ async function makeBotMove() {
 function switchToDuo() {
     settingsDropdown.classList.remove('active');
     gameMode = 'duo';
-    botThinking = false;
+    isBotThinking = false;
     clearSoloState();
     updateModeBadge();
     updateOpponentName();
@@ -837,6 +795,7 @@ async function initGame() {
 
     renderBoard();
     updateStatus();
+    updateModeBadge(); // Ensure dropdown items visibility is correct on first load
 
     if (gameMode === 'solo') {
         console.log('Mode solo détecté, Supabase ignoré');
@@ -956,20 +915,47 @@ async function updateGameState(data = {}) {
     const whitePlayer = data.white_player;
     const lastMoveStr = data.last_move; // "e2-e4"
 
+    // Clear victory modal anti-spam flag if a new game is detected
+    if (!newFen && !newPgn) {
+        sessionStorage.removeItem('gameOverShown');
+    } else if (newFen && newFen.startsWith('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq')) {
+        if (!newPgn || newPgn.trim() === '') {
+            sessionStorage.removeItem('gameOverShown');
+        }
+    }
+
     // Time Sync
     if (data.time_control !== undefined) timeControl = data.time_control;
     if (data.white_time !== undefined) whiteTimeRemaining = data.white_time;
     if (data.black_time !== undefined) blackTimeRemaining = data.black_time;
     if (data.last_move_ts !== undefined) lastMoveTimestamp = data.last_move_ts;
 
-    // Draw offer
-    if (data.draw_offer && data.draw_offer !== myName) {
-        document.getElementById('draw-offer-modal').classList.remove('hidden');
+    // Reject Draw logic
+    if (data.draw_rejected && data.draw_rejected !== myName) {
+        // The opponent rejected my draw offer
+        statusEl.textContent = 'Proposition de nul refusée !';
+        // Clear it from our local UI so it doesn't stay forever, and reset the DB field
+        if (supabaseClient && data.draw_offer === myName) {
+            try {
+                // Remove the reject flag so it only triggers once
+                await supabaseClient.from('chess_state').update({ draw_rejected: null, draw_offer: null }).eq('id', GAME_ID);
+            } catch (e) { }
+        }
     }
 
-    // Resign
-    if (data.status === 'resigned' && data.resigned_by && data.resigned_by !== myName) {
-        const winner = myColor === 'w' ? 'Blancs' : 'Noirs';
+    // Draw offer
+    if (data.draw_offer && data.draw_offer !== myName && !data.draw_rejected) {
+        document.getElementById('draw-offer-modal').classList.remove('hidden');
+    } else {
+        document.getElementById('draw-offer-modal').classList.add('hidden');
+    }
+
+    // Resign and Draw status
+    if (data.status === 'resigned' && data.resigned_by) {
+        // If someone resigned, figure out who won
+        // If resigned_by is whitePlayer, black wins, etc.
+        const isWhiteWhoResigned = (data.resigned_by === data.white_player);
+        const winner = isWhiteWhoResigned ? 'Noirs' : 'Blancs';
         showGameOver(winner);
         return;
     }
@@ -1004,31 +990,41 @@ async function updateGameState(data = {}) {
 
     let needsRender = false;
 
-    if (!newFen && !newPgn) {
-        game.reset();
-        viewIndex = null;
-        needsRender = true;
-    } else {
-        // Prefer PGN for history
-        // Force load PGN if available to ensure history is populated
-        if (newPgn && newPgn.trim() !== '') {
-            const loaded = game.load_pgn(newPgn);
-            if (loaded) {
-                needsRender = true;
-            } else {
-                console.warn('PGN invalide, fallback FEN');
-                if (newFen) game.load(newFen);
-                needsRender = true;
-            }
-        } else if (newFen && newFen !== game.fen()) {
-            // Fallback to FEN
-            try {
-                game.load(newFen);
-                needsRender = true;
-            } catch (err) {
-                console.error('FEN invalide reçue, reset local:', err);
-                game.reset();
-                needsRender = true;
+    // Seulement mettre à jour si on a vraiment recu un nouvel etat
+    if (data.fen !== undefined || data.pgn !== undefined) {
+        if (!newFen && !newPgn) {
+            // Nouvelle partie ou reset complet
+            game.reset();
+            viewIndex = null;
+            needsRender = true;
+        } else {
+            // Prefer PGN for history
+            if (newPgn && newPgn.trim() !== '') {
+                // On charge le PGN uniquement si on a une version différente de la nôtre
+                if (game.pgn() !== newPgn) {
+                    const loaded = game.load_pgn(newPgn);
+                    if (loaded) {
+                        needsRender = true;
+                    } else {
+                        console.warn('PGN invalide, fallback FEN');
+                        if (newFen && newFen !== game.fen()) {
+                            try {
+                                game.load(newFen);
+                                needsRender = true;
+                            } catch (e) { console.error(e); }
+                        }
+                    }
+                }
+            } else if (newFen && newFen !== game.fen()) {
+                // Fallback to FEN
+                try {
+                    game.load(newFen);
+                    needsRender = true;
+                } catch (err) {
+                    console.error('FEN invalide reçue, reset local:', err);
+                    game.reset();
+                    needsRender = true;
+                }
             }
         }
     }
@@ -1279,7 +1275,7 @@ function getPieceName(type) {
 
 function onSquareClick(square) {
     if (viewIndex !== null) return;
-    if (botThinking) return;
+    if (isBotThinking) return;
 
     if (game.turn() !== myColor) {
         if (gameMode === 'solo') return;
@@ -1413,7 +1409,7 @@ let pointerDragClone = null;
 
 function handlePointerDown(e, square) {
     if (viewIndex !== null || e.button !== 0) return;
-    if (botThinking) return;
+    if (isBotThinking) return;
     e.preventDefault();
 
     const piece = getPredictedPieceAt(square);
@@ -1581,7 +1577,7 @@ let activeTouchPiece = null;
 
 function handleTouchStart(e, square) {
     if (viewIndex !== null) return;
-    if (botThinking) return;
+    if (isBotThinking) return;
     e.preventDefault();
 
     const piece = getPredictedPieceAt(square);
@@ -1687,7 +1683,7 @@ function animateMove(from, to) {
         const dx = toRect.left - fromRect.left;
         const dy = toRect.top - fromRect.top;
 
-        pieceDiv.style.transition = 'transform 0.15s ease-out';
+        pieceDiv.style.transition = 'transform 0.4s ease-out';
         pieceDiv.style.transform = `translate(${dx}px, ${dy}px)`;
         pieceDiv.style.zIndex = '10';
 
@@ -1699,7 +1695,7 @@ function animateMove(from, to) {
             resolve();
         });
 
-        setTimeout(resolve, 200);
+        setTimeout(resolve, 450);
     });
 }
 
@@ -1877,7 +1873,7 @@ function updateStatus() {
         status = 'Match nul !';
         if (viewIndex === null) showGameOver('draw');
     } else {
-        if (gameMode === 'solo' && botThinking) {
+        if (gameMode === 'solo' && isBotThinking) {
             status = 'Bot réfléchit...';
         } else {
             status = `Au tour des ${moveColor}`;
@@ -1993,10 +1989,21 @@ function triggerConfetti() {
     }, 250);
 }
 
-function proposeDraw() {
+async function proposeDraw() {
     settingsDropdown.classList.remove('active');
+    // Solo mode: offer draw is not applicable (playing vs bot)
+    if (gameMode === 'solo') {
+        alert('Impossible de proposer un nul contre le bot. Vous pouvez abandonner si vous le souhaitez.');
+        return;
+    }
     if (gameMode !== 'duo' || !GAME_ID) return;
-    if (supabaseClient) supabaseClient.from('chess_state').update({ draw_offer: myName }).eq('id', GAME_ID);
+    if (supabaseClient) {
+        try {
+            await supabaseClient.from('chess_state').update({ draw_offer: myName }).eq('id', GAME_ID);
+        } catch (e) {
+            console.error('Erreur proposition nul:', e);
+        }
+    }
     statusEl.textContent = 'Proposition de nul envoyée...';
     const item = document.getElementById('draw-offer-item');
     if (item) {
@@ -2006,17 +2013,29 @@ function proposeDraw() {
     }
 }
 
-function acceptDraw() {
+async function acceptDraw() {
     closeModal('draw-offer-modal');
     if (!GAME_ID) return;
-    if (supabaseClient) supabaseClient.from('chess_state').update({ draw_offer: null, status: 'draw' }).eq('id', GAME_ID);
+    if (supabaseClient) {
+        try {
+            await supabaseClient.from('chess_state').update({ draw_offer: null, status: 'draw' }).eq('id', GAME_ID);
+        } catch (e) {
+            console.error('Erreur accept nul:', e);
+        }
+    }
     showGameOver('draw');
 }
 
-function declineDraw() {
+async function declineDraw() {
     closeModal('draw-offer-modal');
     if (!GAME_ID) return;
-    if (supabaseClient) supabaseClient.from('chess_state').update({ draw_offer: null }).eq('id', GAME_ID);
+    if (supabaseClient) {
+        try {
+            await supabaseClient.from('chess_state').update({ draw_offer: null, draw_rejected: myName }).eq('id', GAME_ID);
+        } catch (e) {
+            console.error('Erreur refus nul:', e);
+        }
+    }
     statusEl.textContent = 'Proposition de nul refusée.';
 }
 
@@ -2025,11 +2044,29 @@ function openResignModal() {
     document.getElementById('resign-modal').classList.remove('hidden');
 }
 
-function confirmResign() {
+async function confirmResign() {
     closeModal('resign-modal');
+    // In solo mode, just show game over locally
+    if (gameMode === 'solo') {
+        const winner = myColor === 'w' ? 'Noirs' : 'Blancs';
+        game.reset({ layout: ' unicode' });
+        showGameOver(winner);
+        clearSoloState();
+        return;
+    }
+    // Duo mode: update Supabase. The real winner will be calculated by the other player based on `resigned_by`
     if (gameMode !== 'duo' || !GAME_ID) return;
+
+    // Determine winner immediately for local UI, though updateGameState will also handle it
     const winner = myColor === 'w' ? 'Noirs' : 'Blancs';
-    if (supabaseClient) supabaseClient.from('chess_state').update({ status: 'resigned', resigned_by: myName }).eq('id', GAME_ID);
+
+    if (supabaseClient) {
+        try {
+            await supabaseClient.from('chess_state').update({ status: 'resigned', resigned_by: myName }).eq('id', GAME_ID);
+        } catch (e) {
+            console.error('Erreur abandon:', e);
+        }
+    }
     showGameOver(winner);
 }
 
@@ -2152,9 +2189,22 @@ if ('serviceWorker' in navigator) {
 // Gestion de la visibilité (PWA/Mobile) pour rafraîchir l'état au retour
 document.addEventListener('visibilitychange', async () => {
     if (document.visibilityState === 'visible') {
-        console.log('App is back in foreground, refreshing game state...');
+        console.log('App is back in foreground');
 
-        // 1. Re-fetch state from Supabase
+        // --- Solo mode: preserve local state, skip Supabase sync ---
+        if (gameMode === 'solo') {
+            // Re-render board and timers to reflect any elapsed time
+            renderBoard();
+            updateStatus();
+            startTimer();
+            // If it's the bot's turn and no search is in progress, resume
+            if (game.turn() !== myColor && !game.game_over() && !isBotThinking) {
+                makeBotMove();
+            }
+            return;
+        }
+
+        // --- Duo mode: re-fetch state from Supabase ---
         if (supabaseClient) {
             try {
                 const response = await supabaseClient
@@ -2164,11 +2214,11 @@ document.addEventListener('visibilitychange', async () => {
                     .single();
 
                 if (response.data) {
-                    console.log('State refreshed:', response.data);
+                    console.log('Duo state refreshed:', response.data);
                     updateGameState(response.data);
                 }
 
-                // 2. Force Reconnect Realtime
+                // Force Reconnect Realtime
                 console.log('Forcing realtime reconnection...');
                 setupRealtimeSubscription();
 
@@ -2506,7 +2556,6 @@ function saveSoloState() {
         myColor,
         botDifficulty,
         botEloOverride,
-        botEngine,
         whiteTimeRemaining,
         blackTimeRemaining,
         timeControl,
@@ -2528,7 +2577,6 @@ function restoreSoloState() {
         myColor = state.myColor;
         botDifficulty = state.botDifficulty || 3;
         botEloOverride = state.botEloOverride || null;
-        botEngine = state.botEngine || 'chess-api';
         timeControl = state.timeControl || 0;
         whiteTimeRemaining = state.whiteTimeRemaining || 0;
         blackTimeRemaining = state.blackTimeRemaining || 0;
@@ -2549,7 +2597,7 @@ function restoreSoloState() {
         startTimer();
 
         if (game.turn() !== myColor && !game.game_over()) {
-            setTimeout(() => makeBotMove(), 500);
+            makeBotMove();
         }
     } catch (e) {
         console.error('Erreur restauration solo:', e);
