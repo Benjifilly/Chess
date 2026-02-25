@@ -19,12 +19,17 @@ let boardFlipped = false;
 let premoveQueue = [];
 
 let selectedColorChoice = null;
-let selectedTimeChoice = 5; // Default 5 min
+let selectedTimeChoice = 5;
 let whiteTimeRemaining = 0;
 let blackTimeRemaining = 0;
 let lastMoveTimestamp = 0;
 let timerInterval = null;
-let timeControl = 0; // 0 = infinite
+let timeControl = 0;
+
+let gameMode = 'duo';
+let botDifficulty = 1;
+let botThinking = false;
+let botEngine = 'chess-api';
 
 // Drag Variables
 let sourceSquare = null;
@@ -315,12 +320,12 @@ loginBtn.addEventListener('click', async () => {
         loginScreen.classList.add('login-success');
         // triggerConfetti(); // Removed as requested
 
-        // Préparer le jeu en arrière-plan
         myName = name;
         myNameEl.textContent = myName;
         opponentNameEl.textContent = myName === 'Benji' ? 'Sanaa' : 'Benji';
-        gameScreen.classList.remove('hidden'); // Afficher le jeu derrière
-        initGame(); // Initialiser le jeu
+        gameScreen.classList.remove('hidden');
+        restoreSoloState();
+        initGame();
 
         // Attendre la fin de l'animation pour cacher l'écran de login
         setTimeout(() => {
@@ -353,10 +358,10 @@ function login(name) {
     myNameEl.textContent = myName;
     opponentNameEl.textContent = myName === 'Benji' ? 'Sanaa' : 'Benji';
 
-    // Hide login, show game
     loginScreen.classList.add('hidden');
     gameScreen.classList.remove('hidden');
 
+    restoreSoloState();
     initGame();
 }
 
@@ -394,8 +399,95 @@ function openNewGameModal() {
     selectedColorChoice = null;
     startGameBtn.disabled = true;
     document.querySelectorAll('.color-option').forEach(el => el.classList.remove('selected'));
-    // Reset time selection to default (5 min)
     selectTime(5);
+    selectMode('duo');
+}
+
+function selectMode(mode) {
+    gameMode = mode;
+    const toggle = document.getElementById('mode-toggle');
+    const diffSection = document.getElementById('difficulty-section');
+    if (mode === 'solo') {
+        toggle.classList.add('solo-active');
+        diffSection.classList.add('visible');
+    } else {
+        toggle.classList.remove('solo-active');
+        diffSection.classList.remove('visible');
+    }
+}
+
+const ENGINE_DESCRIPTIONS = {
+    'chess-api': 'Stockfish via chess-api.com (puissant)',
+    'lichess': 'Analyse Lichess cloud (moyen)',
+    'random-weighted': 'Coups aléatoires pondérés (facile)'
+};
+
+function selectEngine(engine) {
+    botEngine = engine;
+    document.querySelectorAll('.engine-btn').forEach(btn => {
+        btn.classList.toggle('selected', btn.dataset.engine === engine);
+    });
+    document.getElementById('engine-desc').textContent = ENGINE_DESCRIPTIONS[engine] || '';
+}
+
+const DIFFICULTY_NAMES = ['', 'Débutant', 'Facile', 'Intermédiaire', 'Avancé', 'Expert'];
+
+let botEloOverride = null;
+
+function updateDifficultyLabel(val) {
+    botDifficulty = parseFloat(val);
+    botEloOverride = null;
+    const rounded = Math.round(botDifficulty);
+    const el = document.getElementById('difficulty-value');
+    if (el) el.textContent = DIFFICULTY_NAMES[rounded];
+}
+
+function selectPreset(difficulty, elo) {
+    document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('selected'));
+    event.currentTarget.classList.add('selected');
+    document.getElementById('elo-input').value = elo;
+    botDifficulty = difficulty;
+    botEloOverride = elo;
+    const el = document.getElementById('difficulty-value');
+    if (el) el.textContent = DIFFICULTY_NAMES[Math.round(difficulty)];
+}
+
+function saveAdvancedDifficulty() {
+    const elo = parseInt(document.getElementById('elo-input').value);
+    if (!isNaN(elo) && elo >= 200 && elo <= 3000) {
+        botEloOverride = elo;
+        const el = document.getElementById('difficulty-value');
+        const presetMatch = [400, 800, 1500, 2500].includes(elo);
+        if (el) {
+            el.textContent = presetMatch ? DIFFICULTY_NAMES[Math.round(botDifficulty)] : `Perso (${elo})`;
+        }
+    }
+    closeModal('advanced-diff-modal');
+}
+
+function updateModeBadge() {
+    const badge = document.getElementById('mode-badge');
+    const switchDuoItem = document.getElementById('switch-duo-item');
+    if (badge) {
+        if (gameMode === 'solo') {
+            badge.textContent = 'SOLO';
+            badge.classList.add('solo');
+        } else {
+            badge.textContent = 'DUO';
+            badge.classList.remove('solo');
+        }
+    }
+    if (switchDuoItem) {
+        switchDuoItem.style.display = gameMode === 'solo' ? '' : 'none';
+    }
+}
+
+function updateOpponentName() {
+    if (gameMode === 'solo') {
+        opponentNameEl.textContent = 'Bot 🤖';
+    } else {
+        opponentNameEl.textContent = myName === 'Benji' ? 'Sanaa' : 'Benji';
+    }
 }
 
 function openModal(modalId) {
@@ -442,38 +534,49 @@ async function confirmNewGame() {
 
     let whitePlayerName = myName;
 
-    if (selectedColorChoice === 'black') {
-        whitePlayerName = myName === 'Benji' ? 'Sanaa' : 'Benji';
-    } else if (selectedColorChoice === 'random') {
-        whitePlayerName = Math.random() < 0.5 ? 'Benji' : 'Sanaa';
+    if (gameMode === 'solo') {
+        if (selectedColorChoice === 'black') {
+            whitePlayerName = 'Bot';
+        } else if (selectedColorChoice === 'random') {
+            whitePlayerName = Math.random() < 0.5 ? myName : 'Bot';
+        }
+    } else {
+        if (selectedColorChoice === 'black') {
+            whitePlayerName = myName === 'Benji' ? 'Sanaa' : 'Benji';
+        } else if (selectedColorChoice === 'random') {
+            whitePlayerName = Math.random() < 0.5 ? 'Benji' : 'Sanaa';
+        }
     }
 
     game.reset();
-    lastMove = null; // Clear last move highlight
-    viewIndex = null; // Reset history view
+    lastMove = null;
+    viewIndex = null;
+    botThinking = false;
 
-    // Update local player color based on selection
     if (whitePlayerName === myName) {
         myColor = 'w';
     } else {
         myColor = 'b';
     }
 
-    // Update board orientation
     boardFlipped = (myColor === 'b');
 
-    // Initialize Time
-    timeControl = selectedTimeChoice * 60 * 1000; // Convert to ms
+    timeControl = selectedTimeChoice * 60 * 1000;
     whiteTimeRemaining = timeControl;
     blackTimeRemaining = timeControl;
     lastMoveTimestamp = Date.now();
 
-    // Render immediately (Optimistic UI)
     renderBoard();
     updateStatus();
     startTimer();
+    updateModeBadge();
+    updateOpponentName();
 
-    if (supabaseClient) {
+    if (gameMode === 'duo') {
+        clearSoloState();
+    }
+
+    if (gameMode === 'duo' && supabaseClient) {
         try {
             await supabaseClient
                 .from('chess_state')
@@ -481,7 +584,7 @@ async function confirmNewGame() {
                     fen: game.fen(),
                     last_move: '',
                     white_player: whitePlayerName,
-                    pgn: '', // Reset PGN
+                    pgn: '',
                     white_time: whiteTimeRemaining,
                     black_time: blackTimeRemaining,
                     last_move_ts: lastMoveTimestamp,
@@ -492,6 +595,176 @@ async function confirmNewGame() {
             console.error('Erreur Supabase:', error);
         }
     }
+
+    if (gameMode === 'solo' && game.turn() !== myColor) {
+        makeBotMove();
+    }
+}
+// --- BOT AI ENGINE (STOCKFISH API) ---
+
+async function getStockfishMove(fen, difficultyElo) {
+    try {
+        let fullFen = fen;
+        const fenParts = fen.split(' ');
+        if (fenParts.length < 6) {
+            if (fenParts.length === 4) fullFen += " 0 1";
+            else if (fenParts.length === 5) fullFen += " 1";
+        }
+
+        const response = await fetch('https://chess-api.com/v1', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                fen: fullFen,
+                maxDepth: 12,
+                elo: difficultyElo
+            })
+        });
+        const data = await response.json();
+
+        if (data && data.from && data.to) {
+            return { from: data.from, to: data.to, promotion: data.promotion || undefined };
+        }
+        console.error("Chess-api didn't return a valid bestmove:", data);
+    } catch (error) {
+        console.error("Error fetching move from chess-api:", error);
+    }
+
+    const moves = game.moves({ verbose: true });
+    if (moves.length > 0) {
+        return moves[Math.floor(Math.random() * moves.length)];
+    }
+    return null;
+}
+
+async function getLichessMove(fen) {
+    try {
+        let fullFen = fen;
+        const fenParts = fen.split(' ');
+        if (fenParts.length < 6) {
+            if (fenParts.length === 4) fullFen += " 0 1";
+            else if (fenParts.length === 5) fullFen += " 1";
+        }
+
+        const response = await fetch(`https://lichess.org/api/cloud-eval?fen=${encodeURIComponent(fullFen)}&multiPv=1`, {
+            headers: { 'Accept': 'application/json' }
+        });
+        const data = await response.json();
+
+        if (data && data.pvs && data.pvs.length > 0) {
+            const bestLine = data.pvs[0].moves;
+            if (bestLine) {
+                const uciMove = bestLine.split(' ')[0];
+                const from = uciMove.substring(0, 2);
+                const to = uciMove.substring(2, 4);
+                const promotion = uciMove.length > 4 ? uciMove[4] : undefined;
+                return { from, to, promotion };
+            }
+        }
+    } catch (error) {
+        console.error("Error fetching move from Lichess:", error);
+    }
+
+    return getStockfishMove(fen, 800);
+}
+
+function getWeightedRandomMove() {
+    const moves = game.moves({ verbose: true });
+    if (moves.length === 0) return null;
+
+    const weighted = moves.map(m => {
+        let weight = 1;
+        if (m.flags.includes('c') || m.flags.includes('e')) weight += 3;
+        if (m.san.includes('+')) weight += 2;
+        if (m.san.includes('#')) weight += 10;
+        const tc = m.to.charCodeAt(0) - 97;
+        const tr = parseInt(m.to[1]);
+        const centerDist = Math.abs(tc - 3.5) + Math.abs(tr - 4.5);
+        if (centerDist <= 2) weight += 1;
+        return { move: m, weight };
+    });
+
+    const totalWeight = weighted.reduce((sum, w) => sum + w.weight, 0);
+    let rand = Math.random() * totalWeight;
+    for (const w of weighted) {
+        rand -= w.weight;
+        if (rand <= 0) return w.move;
+    }
+    return weighted[weighted.length - 1].move;
+}
+
+async function makeBotMove() {
+    if (gameMode !== 'solo' || game.turn() === myColor || game.game_over()) return;
+
+    botThinking = true;
+    updateStatus();
+
+    const failsafe = setTimeout(() => {
+        if (botThinking) {
+            console.warn('Bot failsafe: forçage coup aléatoire après timeout');
+            botThinking = false;
+            const moves = game.moves({ verbose: true });
+            if (moves.length > 0) {
+                const m = moves[Math.floor(Math.random() * moves.length)];
+                makeMove(m.from, m.to);
+            }
+            updateStatus();
+            saveSoloState();
+        }
+    }, 10000);
+
+    try {
+        let targetElo = botEloOverride;
+        if (targetElo === null) {
+            if (botDifficulty <= 2) {
+                targetElo = Math.round(100 + (botDifficulty - 1) * 300);
+            } else if (botDifficulty <= 3) {
+                targetElo = Math.round(400 + (botDifficulty - 2) * 400);
+            } else if (botDifficulty <= 4) {
+                targetElo = Math.round(800 + (botDifficulty - 3) * 700);
+            } else {
+                targetElo = Math.round(1500 + (botDifficulty - 4) * 1500);
+            }
+        }
+
+        let botMove = null;
+        if (botEngine === 'random-weighted') {
+            await new Promise(r => setTimeout(r, 300 + Math.random() * 500));
+            botMove = getWeightedRandomMove();
+        } else if (botEngine === 'lichess') {
+            botMove = await getLichessMove(game.fen());
+        } else {
+            botMove = await getStockfishMove(game.fen(), targetElo);
+        }
+
+        clearTimeout(failsafe);
+
+        if (botMove && botThinking) {
+            await makeMove(botMove.from, botMove.to, botMove.promotion);
+        }
+    } catch (e) {
+        console.error('Erreur bot:', e);
+        clearTimeout(failsafe);
+    } finally {
+        botThinking = false;
+        updateStatus();
+        saveSoloState();
+    }
+}
+
+function switchToDuo() {
+    settingsDropdown.classList.remove('active');
+    gameMode = 'duo';
+    botThinking = false;
+    clearSoloState();
+    updateModeBadge();
+    updateOpponentName();
+    game.reset();
+    lastMove = null;
+    viewIndex = null;
+    renderBoard();
+    updateStatus();
+    initGame();
 }
 
 // --- GAME LOGIC ---
@@ -499,20 +772,23 @@ async function confirmNewGame() {
 async function initGame() {
     console.log('initGame appelé');
 
-    // 1. Afficher le plateau TOUT DE SUITE (Optimistic UI)
     if (!game) game = new Chess();
-    // Définir une couleur par défaut si pas encore définie
     if (!myColor) myColor = myName === 'Benji' ? 'w' : 'b';
     boardFlipped = (myColor === 'b');
 
-    console.log('Affichage immédiat du plateau (avant synchro)...');
     renderBoard();
     updateStatus();
+
+    if (gameMode === 'solo') {
+        console.log('Mode solo détecté, Supabase ignoré');
+        return;
+    }
+
+    setupPresence();
 
     let data = null;
     let error = null;
 
-    // 2. Charger l'état réel depuis Supabase
     if (supabaseClient) {
         try {
             console.log('Tentative de connexion Supabase...');
@@ -536,9 +812,8 @@ async function initGame() {
         console.warn("Aucune donnée trouvée ou erreur Supabase (utilisation du plateau local):", error);
     }
 
-    // Écouter les changements en temps réel
     setupRealtimeSubscription();
-    setupChatSubscription(); // Add Chat Subscription
+    setupChatSubscription();
 }
 
 function setupRealtimeSubscription() {
@@ -566,6 +841,53 @@ function setupRealtimeSubscription() {
             });
     } catch (error) {
         console.error('Erreur canal temps réel:', error);
+    }
+}
+
+let presenceChannel = null;
+
+function setupPresence() {
+    if (!supabaseClient || gameMode === 'solo') return;
+
+    if (presenceChannel) {
+        supabaseClient.removeChannel(presenceChannel);
+    }
+
+    presenceChannel = supabaseClient.channel('chess_presence', {
+        config: { presence: { key: myName } }
+    });
+
+    presenceChannel
+        .on('presence', { event: 'sync' }, () => {
+            const state = presenceChannel.presenceState();
+            updatePresenceUI(state);
+        })
+        .subscribe(async (status) => {
+            if (status === 'SUBSCRIBED') {
+                await presenceChannel.track({ user: myName, online_at: new Date().toISOString() });
+            }
+        });
+}
+
+function updatePresenceUI(state) {
+    const opponentName = myName === 'Benji' ? 'Sanaa' : 'Benji';
+    const isOnline = !!state[opponentName] && state[opponentName].length > 0;
+
+    const chatDot = document.getElementById('chat-online-dot');
+    const dropdownDot = document.querySelector('#presence-status .online-dot');
+    const presenceText = document.getElementById('presence-text');
+
+    if (chatDot) {
+        chatDot.style.display = isOnline ? 'inline-block' : 'none';
+        chatDot.classList.toggle('offline', !isOnline);
+    }
+
+    if (dropdownDot) {
+        dropdownDot.classList.toggle('offline', !isOnline);
+    }
+
+    if (presenceText) {
+        presenceText.textContent = isOnline ? `${opponentName} en ligne` : `${opponentName} hors ligne`;
     }
 }
 
@@ -882,8 +1204,10 @@ function getPieceName(type) {
 
 function onSquareClick(square) {
     if (viewIndex !== null) return;
+    if (botThinking) return;
 
     if (game.turn() !== myColor) {
+        if (gameMode === 'solo') return;
         handlePremoveClick(square);
         return;
     }
@@ -1014,12 +1338,14 @@ let pointerDragClone = null;
 
 function handlePointerDown(e, square) {
     if (viewIndex !== null || e.button !== 0) return;
+    if (botThinking) return;
     e.preventDefault();
 
     const piece = getPredictedPieceAt(square);
     if (!piece || piece.color !== myColor) return;
 
     const isPremove = game.turn() !== myColor;
+    if (isPremove && gameMode === 'solo') return;
 
     pointerDragPiece = e.target;
     sourceSquare = square;
@@ -1180,12 +1506,14 @@ let activeTouchPiece = null;
 
 function handleTouchStart(e, square) {
     if (viewIndex !== null) return;
+    if (botThinking) return;
     e.preventDefault();
 
     const piece = getPredictedPieceAt(square);
     if (!piece || piece.color !== myColor) return;
 
     const isPremove = game.turn() !== myColor;
+    if (isPremove && gameMode === 'solo') return;
     sourceSquare = square;
 
     const touch = e.touches[0];
@@ -1335,8 +1663,7 @@ async function makeMove(from, to) {
         updateStatus();
         startTimer();
 
-        // Envoyer à Supabase
-        if (supabaseClient) {
+        if (gameMode === 'duo' && supabaseClient) {
             try {
                 await supabaseClient
                     .from('chess_state')
@@ -1352,6 +1679,13 @@ async function makeMove(from, to) {
             } catch (error) {
                 console.error('Erreur mise à jour coup:', error);
             }
+        }
+
+        if (gameMode === 'solo' && game.turn() !== myColor && !game.game_over()) {
+            saveSoloState();
+            makeBotMove();
+        } else if (gameMode === 'solo') {
+            saveSoloState();
         }
     } else {
         selectedSquare = null;
@@ -1468,7 +1802,11 @@ function updateStatus() {
         status = 'Match nul !';
         if (viewIndex === null) showGameOver('draw');
     } else {
-        status = `Au tour des ${moveColor}`;
+        if (gameMode === 'solo' && botThinking) {
+            status = 'Bot réfléchit...';
+        } else {
+            status = `Au tour des ${moveColor}`;
+        }
         if (activeGame.in_check()) {
             status += ' (Échec !)';
             highlightKingInCheck(activeGame);
@@ -2038,4 +2376,69 @@ async function confirmClearChat() {
         confirmBtn.innerText = originalText;
         confirmBtn.disabled = false;
     }
+}
+
+// --- SOLO STATE PERSISTENCE ---
+
+function saveSoloState() {
+    if (gameMode !== 'solo') return;
+    const state = {
+        fen: game.fen(),
+        pgn: game.pgn(),
+        myColor,
+        botDifficulty,
+        botEloOverride,
+        botEngine,
+        whiteTimeRemaining,
+        blackTimeRemaining,
+        timeControl,
+        lastMoveTimestamp,
+        gameMode: 'solo'
+    };
+    localStorage.setItem('chess_solo_state', JSON.stringify(state));
+}
+
+function restoreSoloState() {
+    const saved = localStorage.getItem('chess_solo_state');
+    if (!saved) return;
+
+    try {
+        const state = JSON.parse(saved);
+        if (state.gameMode !== 'solo') return;
+
+        gameMode = 'solo';
+        myColor = state.myColor;
+        botDifficulty = state.botDifficulty || 3;
+        botEloOverride = state.botEloOverride || null;
+        botEngine = state.botEngine || 'chess-api';
+        timeControl = state.timeControl || 0;
+        whiteTimeRemaining = state.whiteTimeRemaining || 0;
+        blackTimeRemaining = state.blackTimeRemaining || 0;
+        lastMoveTimestamp = state.lastMoveTimestamp || Date.now();
+
+        game.reset();
+        if (state.pgn && state.pgn.trim()) {
+            game.load_pgn(state.pgn);
+        } else if (state.fen) {
+            game.load(state.fen);
+        }
+
+        boardFlipped = (myColor === 'b');
+        updateModeBadge();
+        updateOpponentName();
+        renderBoard();
+        updateStatus();
+        startTimer();
+
+        if (game.turn() !== myColor && !game.game_over()) {
+            setTimeout(() => makeBotMove(), 500);
+        }
+    } catch (e) {
+        console.error('Erreur restauration solo:', e);
+        clearSoloState();
+    }
+}
+
+function clearSoloState() {
+    localStorage.removeItem('chess_solo_state');
 }
