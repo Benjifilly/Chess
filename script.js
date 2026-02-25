@@ -487,7 +487,7 @@ function updateModeBadge() {
 
 function updateOpponentName() {
     if (gameMode === 'solo') {
-        opponentNameEl.textContent = 'Bot 🤖';
+        opponentNameEl.innerHTML = 'Bot <img src="images/benji_robot.png" style="width: 24px; vertical-align: middle; margin-left: 5px;">';
     } else {
         opponentNameEl.textContent = myName === 'Benji' ? 'Sanaa' : 'Benji';
     }
@@ -574,6 +574,7 @@ async function confirmNewGame() {
     startTimer();
     updateModeBadge();
     updateOpponentName();
+    sessionStorage.removeItem('gameOverShown');
 
     if (gameMode === 'duo') {
         clearSoloState();
@@ -633,11 +634,7 @@ async function getStockfishMove(fen, difficultyElo) {
         console.error("Error fetching move from chess-api:", error);
     }
 
-    const moves = game.moves({ verbose: true });
-    if (moves.length > 0) {
-        return moves[Math.floor(Math.random() * moves.length)];
-    }
-    return null;
+    return getLocalAIMove(game, 2);
 }
 
 async function getLichessMove(fen) {
@@ -671,29 +668,80 @@ async function getLichessMove(fen) {
     return getStockfishMove(fen, 800);
 }
 
-function getWeightedRandomMove() {
-    const moves = game.moves({ verbose: true });
+// LOCAL AI MINIMAX ENGINE
+const PIECE_VALUES = { p: 10, n: 30, b: 30, r: 50, q: 90, k: 900 };
+
+function evaluateBoard(gameInst) {
+    let score = 0;
+    const board = gameInst.board();
+    for (let i = 0; i < 8; i++) {
+        for (let j = 0; j < 8; j++) {
+            const square = board[i][j];
+            if (square) {
+                const val = PIECE_VALUES[square.type];
+                score += square.color === 'w' ? val : -val;
+            }
+        }
+    }
+    return score;
+}
+
+function getLocalAIMove(gameInst, depth) {
+    const moves = gameInst.moves({ verbose: true });
     if (moves.length === 0) return null;
 
-    const weighted = moves.map(m => {
-        let weight = 1;
-        if (m.flags.includes('c') || m.flags.includes('e')) weight += 3;
-        if (m.san.includes('+')) weight += 2;
-        if (m.san.includes('#')) weight += 10;
-        const tc = m.to.charCodeAt(0) - 97;
-        const tr = parseInt(m.to[1]);
-        const centerDist = Math.abs(tc - 3.5) + Math.abs(tr - 4.5);
-        if (centerDist <= 2) weight += 1;
-        return { move: m, weight };
-    });
-
-    const totalWeight = weighted.reduce((sum, w) => sum + w.weight, 0);
-    let rand = Math.random() * totalWeight;
-    for (const w of weighted) {
-        rand -= w.weight;
-        if (rand <= 0) return w.move;
+    // Si la profondeur est faible, jouer de manière sous-optimale/aléatoire (niveau de base)
+    if (depth <= 1) {
+        return moves[Math.floor(Math.random() * moves.length)];
     }
-    return weighted[weighted.length - 1].move;
+
+    let bestMove = null;
+    let bestScore = gameInst.turn() === 'w' ? -Infinity : Infinity;
+
+    // Mélanger pour de la variété
+    moves.sort(() => Math.random() - 0.5);
+
+    for (const move of moves) {
+        gameInst.move(move.san);
+        let score = minimax(gameInst, depth - 1, -Infinity, Infinity, gameInst.turn() === 'w');
+        gameInst.undo();
+
+        if (gameInst.turn() === 'w') {
+            if (score > bestScore) { bestScore = score; bestMove = move; }
+        } else {
+            if (score < bestScore) { bestScore = score; bestMove = move; }
+        }
+    }
+    return bestMove || moves[0];
+}
+
+function minimax(gameInst, depth, alpha, beta, isMaximizing) {
+    if (depth === 0 || gameInst.game_over()) return evaluateBoard(gameInst);
+
+    const moves = gameInst.moves();
+    if (isMaximizing) {
+        let maxEval = -Infinity;
+        for (const move of moves) {
+            gameInst.move(move);
+            const ev = minimax(gameInst, depth - 1, alpha, beta, false);
+            gameInst.undo();
+            maxEval = Math.max(maxEval, ev);
+            alpha = Math.max(alpha, ev);
+            if (beta <= alpha) break;
+        }
+        return maxEval;
+    } else {
+        let minEval = Infinity;
+        for (const move of moves) {
+            gameInst.move(move);
+            const ev = minimax(gameInst, depth - 1, alpha, beta, true);
+            gameInst.undo();
+            minEval = Math.min(minEval, ev);
+            beta = Math.min(beta, ev);
+            if (beta <= alpha) break;
+        }
+        return minEval;
+    }
 }
 
 async function makeBotMove() {
@@ -731,9 +779,16 @@ async function makeBotMove() {
         }
 
         let botMove = null;
-        if (botEngine === 'random-weighted') {
+
+        // --- LOGIQUE MODULABLE ET SANS ERREUR POUR LES BAS NIVEAUX ---
+        if (targetElo < 1300) {
+            await new Promise(r => setTimeout(r, 400 + Math.random() * 500));
+            // depth 1 = nul, depth 2 = facile, depth 3 = ok
+            let depth = targetElo <= 400 ? 1 : (targetElo <= 800 ? 2 : 3);
+            botMove = getLocalAIMove(game, depth);
+        } else if (botEngine === 'random-weighted') {
             await new Promise(r => setTimeout(r, 300 + Math.random() * 500));
-            botMove = getWeightedRandomMove();
+            botMove = getLocalAIMove(game, 1);
         } else if (botEngine === 'lichess') {
             botMove = await getLichessMove(game.fen());
         } else {
@@ -762,6 +817,7 @@ function switchToDuo() {
     clearSoloState();
     updateModeBadge();
     updateOpponentName();
+    sessionStorage.removeItem('gameOverShown');
     game.reset();
     lastMove = null;
     viewIndex = null;
@@ -1890,6 +1946,9 @@ const LOSE_MESSAGES = [
 ];
 
 function showGameOver(winner) {
+    if (sessionStorage.getItem('gameOverShown') === 'true') return;
+    sessionStorage.setItem('gameOverShown', 'true');
+
     gameOverModal.classList.remove('hidden');
     if (winner === 'draw') {
         gameOverTitle.textContent = "Match Nul !";
@@ -1937,7 +1996,7 @@ function triggerConfetti() {
 function proposeDraw() {
     settingsDropdown.classList.remove('active');
     if (gameMode !== 'duo' || !GAME_ID) return;
-    supabase.from('games').update({ draw_offer: myName }).eq('id', GAME_ID);
+    if (supabaseClient) supabaseClient.from('chess_state').update({ draw_offer: myName }).eq('id', GAME_ID);
     statusEl.textContent = 'Proposition de nul envoyée...';
     const item = document.getElementById('draw-offer-item');
     if (item) {
@@ -1950,14 +2009,14 @@ function proposeDraw() {
 function acceptDraw() {
     closeModal('draw-offer-modal');
     if (!GAME_ID) return;
-    supabase.from('games').update({ draw_offer: null, status: 'draw' }).eq('id', GAME_ID);
+    if (supabaseClient) supabaseClient.from('chess_state').update({ draw_offer: null, status: 'draw' }).eq('id', GAME_ID);
     showGameOver('draw');
 }
 
 function declineDraw() {
     closeModal('draw-offer-modal');
     if (!GAME_ID) return;
-    supabase.from('games').update({ draw_offer: null }).eq('id', GAME_ID);
+    if (supabaseClient) supabaseClient.from('chess_state').update({ draw_offer: null }).eq('id', GAME_ID);
     statusEl.textContent = 'Proposition de nul refusée.';
 }
 
@@ -1970,7 +2029,7 @@ function confirmResign() {
     closeModal('resign-modal');
     if (gameMode !== 'duo' || !GAME_ID) return;
     const winner = myColor === 'w' ? 'Noirs' : 'Blancs';
-    supabase.from('games').update({ status: 'resigned', resigned_by: myName }).eq('id', GAME_ID);
+    if (supabaseClient) supabaseClient.from('chess_state').update({ status: 'resigned', resigned_by: myName }).eq('id', GAME_ID);
     showGameOver(winner);
 }
 
