@@ -834,19 +834,33 @@ function renderBoard() {
             const existingHint = squareDiv.querySelector('.hint');
             if (existingHint) existingHint.remove();
 
-            // Show hints only if Live
             if (viewIndex === null && selectedSquare) {
-                const moves = activeGame.moves({ square: selectedSquare, verbose: true });
-                const isMove = moves.find(m => m.to === squareName);
-                if (isMove) {
-                    if (isMove.flags.includes('c') || isMove.flags.includes('e')) {
-                        squareDiv.classList.add('capture-hint');
-                    } else {
-                        const hint = document.createElement('div');
-                        hint.className = 'hint';
-                        squareDiv.appendChild(hint);
+                const isMyTurnNow = activeGame.turn() === myColor;
+                if (isMyTurnNow) {
+                    const moves = activeGame.moves({ square: selectedSquare, verbose: true });
+                    const isMove = moves.find(m => m.to === squareName);
+                    if (isMove) {
+                        if (isMove.flags.includes('c') || isMove.flags.includes('e')) {
+                            squareDiv.classList.add('capture-hint');
+                        } else {
+                            const hint = document.createElement('div');
+                            hint.className = 'hint';
+                            squareDiv.appendChild(hint);
+                        }
+                        squareDiv.onclick = () => makeMove(selectedSquare, squareName);
                     }
-                    squareDiv.onclick = () => makeMove(selectedSquare, squareName);
+                } else {
+                    const srcPiece = getPredictedPieceAt(selectedSquare);
+                    if (srcPiece && srcPiece.color === myColor && squareName !== selectedSquare && isPseudoLegalPremove(selectedSquare, squareName, srcPiece)) {
+                        const targetPiece = getPredictedPieceAt(squareName);
+                        if (targetPiece && targetPiece.color !== myColor) {
+                            squareDiv.classList.add('capture-hint');
+                        } else {
+                            const hint = document.createElement('div');
+                            hint.className = 'hint';
+                            squareDiv.appendChild(hint);
+                        }
+                    }
                 }
             }
         }
@@ -888,7 +902,7 @@ function handlePremoveClick(square) {
 
     if (predicted && predicted.color === myColor) {
         selectedSquare = square;
-        renderBoard();
+        highlightPremoveMoves(square);
         return;
     }
 
@@ -946,9 +960,15 @@ function isPseudoLegalPremove(from, to, piece) {
         case 'p': {
             const dir = piece.color === 'w' ? 1 : -1;
             const startRank = piece.color === 'w' ? 2 : 7;
-            if (dc === 0 && (tr - fr) === dir) return true;
-            if (dc === 0 && fr === startRank && (tr - fr) === 2 * dir) return true;
-            if (dc === 1 && (tr - fr) === dir) return true;
+            const targetPiece = getPredictedPieceAt(to);
+            if (dc === 0 && (tr - fr) === dir && !targetPiece) return true;
+            if (dc === 0 && fr === startRank && (tr - fr) === 2 * dir && !targetPiece) {
+                const midSquare = String.fromCharCode(97 + fc) + (fr + dir);
+                if (!getPredictedPieceAt(midSquare)) return true;
+                return false;
+            }
+            if (dc === 1 && (tr - fr) === dir && targetPiece && targetPiece.color !== myColor) return true;
+            if (dc === 1 && (tr - fr) === dir && !targetPiece) return true;
             return false;
         }
         case 'n': return (dc === 1 && dr === 2) || (dc === 2 && dr === 1);
@@ -999,7 +1019,8 @@ function handlePointerDown(e, square) {
     pointerDragPiece = e.target;
     sourceSquare = square;
 
-    if (!isPremove) highlightMoves(square);
+    if (isPremove) highlightPremoveMoves(square);
+    else highlightMoves(square);
 
     const rect = pointerDragPiece.getBoundingClientRect();
     const size = Math.max(rect.width, rect.height);
@@ -1104,6 +1125,41 @@ function highlightMoves(square) {
     }
 }
 
+function highlightPremoveMoves(square) {
+    document.querySelectorAll('.square').forEach(sq => {
+        sq.classList.remove('selected', 'capture-hint');
+        const hint = sq.querySelector('.hint');
+        if (hint) hint.remove();
+    });
+
+    const selectedDiv = document.querySelector(`.square[data-square="${square}"]`);
+    if (selectedDiv) selectedDiv.classList.add('selected');
+
+    const piece = getPredictedPieceAt(square);
+    if (!piece || piece.color !== myColor) return;
+
+    const files = 'abcdefgh';
+    for (let f = 0; f < 8; f++) {
+        for (let r = 1; r <= 8; r++) {
+            const target = files[f] + r;
+            if (target === square) continue;
+            if (isPseudoLegalPremove(square, target, piece)) {
+                const targetDiv = document.querySelector(`.square[data-square="${target}"]`);
+                if (targetDiv) {
+                    const targetPiece = getPredictedPieceAt(target);
+                    if (targetPiece && targetPiece.color !== myColor) {
+                        targetDiv.classList.add('capture-hint');
+                    } else {
+                        const hint = document.createElement('div');
+                        hint.className = 'hint';
+                        targetDiv.appendChild(hint);
+                    }
+                }
+            }
+        }
+    }
+}
+
 function handleDragOver(e) {
     e.preventDefault();
 }
@@ -1132,7 +1188,8 @@ function handleTouchStart(e, square) {
     activeTouchPiece = target;
 
     // Visual feedback
-    if (!isPremove) highlightMoves(square);
+    if (isPremove) highlightPremoveMoves(square);
+    else highlightMoves(square);
 
     // Prepare for moving
     const rect = target.getBoundingClientRect();
@@ -1758,16 +1815,17 @@ function displayMessage(msg, isHistory = false) {
     if (emptyState) emptyState.remove();
 
     const isMe = msg.sender === myName;
+    const msgText = msg.message ? msg.message.trim() : '';
+    const emojiOnly = isOnlyEmojis(msgText);
 
-    if (!isHistory && msg.message && isOnlyEmojis(msg.message.trim())) {
-        showReaction(msg.sender, msg.message.trim());
+    if (!isHistory && emojiOnly) {
+        showReaction(msg.sender, msgText);
     }
 
     const div = document.createElement('div');
-    div.className = `message ${isMe ? 'me' : 'opponent'}`;
-    div.dataset.id = msg.id; // Store ID for deletion
+    div.className = `message ${isMe ? 'me' : 'opponent'}${emojiOnly ? ' emoji-only' : ''}`;
+    div.dataset.id = msg.id;
 
-    // Format time
     const date = new Date(msg.created_at);
     const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
@@ -1779,25 +1837,24 @@ function displayMessage(msg, isHistory = false) {
     container.appendChild(div);
     scrollToBottom();
 
-    // Show badge if chat is closed and message is not from me AND it's a new message
     const sidebar = document.getElementById('chat-sidebar');
     if (!isHistory && !sidebar.classList.contains('open') && !isMe) {
         document.getElementById('chat-badge').classList.remove('hidden');
     }
 }
 
-const EMOJI_GRAPHEME_TEST = /^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F|\p{Emoji_Modifier_Base}\p{Emoji_Modifier}?|[\u{1F1E0}-\u{1F1FF}]{2}|\u200D|\uFE0F|[\u{E0020}-\u{E007F}]|\u{E0001}|[\u{1F3FB}-\u{1F3FF}]|[\u{FE00}-\u{FE0F}]|\u20E3|[\u{E0061}-\u{E007A}]|[\u{1FA00}-\u{1FAFF}]|[\u{1F900}-\u{1F9FF}]|[\u{1F600}-\u{1F64F}]|[\u{1F680}-\u{1F6FF}]|[\u{2600}-\u{27BF}]|[\u{2300}-\u{23FF}]|[\u{2B50}]|[\u{200D}])+$/u;
+const EMOJI_GRAPHEME_TEST = /^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F|\p{Emoji_Modifier_Base}\p{Emoji_Modifier}?|[\u{1F1E0}-\u{1F1FF}]{2}|\u200D|\uFE0F|[\u{E0020}-\u{E007F}]|\u{E0001}|[\u{1F3FB}-\u{1F3FF}]|[\u{FE00}-\u{FE0F}]|\u20E3|[\u{E0061}-\u{E007A}]|[\u{1FA00}-\u{1FAFF}]|[\u{1F900}-\u{1F9FF}]|[\u{1F600}-\u{1F64F}]|[\u{1F680}-\u{1F6FF}]|[\u{2600}-\u{27BF}]|[\u{2300}-\u{23FF}]|[\u{2B50}]|[\u{200D}]|[\u{1F400}-\u{1F4FF}]|[\u{1F300}-\u{1F3FF}]|[\u{1F000}-\u{1F0FF}]|[\u{1FA70}-\u{1FAFF}]|[\u{2702}-\u{27B0}]|[\u{FE00}-\u{FEFF}]|[\u{1F170}-\u{1F251}])+$/u;
 
 function isOnlyEmojis(str) {
     if (!str || str.length === 0) return false;
     const cleaned = str.replace(/\s/g, '');
-    if (cleaned.length === 0 || cleaned.length > 30) return false;
+    if (cleaned.length === 0 || cleaned.length > 60) return false;
 
     if (typeof Intl !== 'undefined' && Intl.Segmenter) {
         const seg = new Intl.Segmenter('en', { granularity: 'grapheme' });
         const graphemes = [...seg.segment(cleaned)].map(s => s.segment);
         if (graphemes.length === 0 || graphemes.length > 8) return false;
-        return graphemes.every(g => EMOJI_GRAPHEME_TEST.test(g));
+        return graphemes.every(g => /^\p{Emoji_Presentation}/u.test(g) || /^\p{Emoji}\uFE0F/u.test(g) || EMOJI_GRAPHEME_TEST.test(g));
     }
 
     return EMOJI_GRAPHEME_TEST.test(cleaned);
@@ -1809,7 +1866,7 @@ function extractEmojis(str) {
         const seg = new Intl.Segmenter('en', { granularity: 'grapheme' });
         return [...seg.segment(cleaned)]
             .map(s => s.segment)
-            .filter(s => EMOJI_GRAPHEME_TEST.test(s));
+            .filter(s => /^\p{Emoji_Presentation}/u.test(s) || /^\p{Emoji}\uFE0F/u.test(s) || EMOJI_GRAPHEME_TEST.test(s));
     }
     return [...cleaned];
 }
@@ -1819,15 +1876,15 @@ function showReaction(sender, emojiStr) {
     const reactionEl = document.getElementById(isMe ? 'my-reaction' : 'opponent-reaction');
     if (!reactionEl) return;
 
-    if (reactionEl.exitTimeout) clearTimeout(reactionEl.exitTimeout);
-    if (reactionEl.clearTimeout) clearTimeout(reactionEl.clearTimeout);
+    if (reactionEl._exitTimer) clearTimeout(reactionEl._exitTimer);
+    if (reactionEl._clearTimer) clearTimeout(reactionEl._clearTimer);
+    if (reactionEl._rafId) cancelAnimationFrame(reactionEl._rafId);
 
     const emojis = extractEmojis(emojiStr);
-    const toShow = emojis.slice(0, 5);
+    const toShow = emojis.slice(0, 8);
 
-    reactionEl.innerHTML = '';
     reactionEl.classList.remove('exiting', 'entering');
-    void reactionEl.offsetWidth;
+    reactionEl.innerHTML = '';
 
     toShow.forEach(e => {
         const span = document.createElement('span');
@@ -1836,19 +1893,21 @@ function showReaction(sender, emojiStr) {
         reactionEl.appendChild(span);
     });
 
-    requestAnimationFrame(() => {
-        reactionEl.classList.add('entering');
+    reactionEl._rafId = requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            reactionEl.classList.add('entering');
+        });
     });
 
-    reactionEl.exitTimeout = setTimeout(() => {
+    reactionEl._exitTimer = setTimeout(() => {
         reactionEl.classList.remove('entering');
         reactionEl.classList.add('exiting');
-    }, 6500);
 
-    reactionEl.clearTimeout = setTimeout(() => {
-        reactionEl.innerHTML = '';
-        reactionEl.classList.remove('exiting');
-    }, 7000);
+        reactionEl._clearTimer = setTimeout(() => {
+            reactionEl.innerHTML = '';
+            reactionEl.classList.remove('exiting');
+        }, 500);
+    }, 5000);
 }
 
 function escapeHtml(text) {
