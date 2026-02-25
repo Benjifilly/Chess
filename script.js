@@ -853,7 +853,8 @@ function renderBoard() {
                     const srcPiece = getPredictedPieceAt(selectedSquare);
                     if (srcPiece && srcPiece.color === myColor && squareName !== selectedSquare && isPseudoLegalPremove(selectedSquare, squareName, srcPiece)) {
                         const targetPiece = getPredictedPieceAt(squareName);
-                        if (targetPiece && targetPiece.color !== myColor) {
+                        const showCapture = isPremoveCapture(selectedSquare, squareName, srcPiece, targetPiece);
+                        if (showCapture) {
                             squareDiv.classList.add('capture-hint');
                         } else {
                             const hint = document.createElement('div');
@@ -960,15 +961,9 @@ function isPseudoLegalPremove(from, to, piece) {
         case 'p': {
             const dir = piece.color === 'w' ? 1 : -1;
             const startRank = piece.color === 'w' ? 2 : 7;
-            const targetPiece = getPredictedPieceAt(to);
-            if (dc === 0 && (tr - fr) === dir && !targetPiece) return true;
-            if (dc === 0 && fr === startRank && (tr - fr) === 2 * dir && !targetPiece) {
-                const midSquare = String.fromCharCode(97 + fc) + (fr + dir);
-                if (!getPredictedPieceAt(midSquare)) return true;
-                return false;
-            }
-            if (dc === 1 && (tr - fr) === dir && targetPiece && targetPiece.color !== myColor) return true;
-            if (dc === 1 && (tr - fr) === dir && !targetPiece) return true;
+            if (dc === 0 && (tr - fr) === dir) return true;
+            if (dc === 0 && fr === startRank && (tr - fr) === 2 * dir) return true;
+            if (dc === 1 && (tr - fr) === dir) return true;
             return false;
         }
         case 'n': return (dc === 1 && dr === 2) || (dc === 2 && dr === 1);
@@ -978,6 +973,16 @@ function isPseudoLegalPremove(from, to, piece) {
         case 'k': return dc <= 1 && dr <= 1 || (dr === 0 && dc === 2);
         default: return false;
     }
+}
+
+function isPremoveCapture(from, to, piece, targetPiece) {
+    if (!targetPiece || targetPiece.color === myColor) return false;
+    if (piece.type === 'p') {
+        const fc = from.charCodeAt(0) - 97;
+        const tc = to.charCodeAt(0) - 97;
+        return Math.abs(tc - fc) === 1;
+    }
+    return true;
 }
 
 function clearPremove() {
@@ -1147,7 +1152,8 @@ function highlightPremoveMoves(square) {
                 const targetDiv = document.querySelector(`.square[data-square="${target}"]`);
                 if (targetDiv) {
                     const targetPiece = getPredictedPieceAt(target);
-                    if (targetPiece && targetPiece.color !== myColor) {
+                    const showCapture = isPremoveCapture(square, target, piece, targetPiece);
+                    if (showCapture) {
                         targetDiv.classList.add('capture-hint');
                     } else {
                         const hint = document.createElement('div');
@@ -1900,12 +1906,11 @@ function showReaction(sender, emojiStr) {
     });
 
     reactionEl._exitTimer = setTimeout(() => {
-        reactionEl.classList.remove('entering');
         reactionEl.classList.add('exiting');
 
         reactionEl._clearTimer = setTimeout(() => {
             reactionEl.innerHTML = '';
-            reactionEl.classList.remove('exiting');
+            reactionEl.classList.remove('exiting', 'entering');
         }, 500);
     }, 5000);
 }
