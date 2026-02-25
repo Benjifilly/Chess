@@ -292,6 +292,31 @@
         </div>
     </div>
 
+    <!-- Draw Offer Received Modal -->
+    <div id="draw-offer-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2>Proposition de nul</h2>
+            <p style="margin-bottom: 20px; opacity: 0.8;">Ton adversaire propose un match nul. Accepter ?</p>
+            <div style="display: flex; gap: 10px; width: 100%;">
+                <button class="cancel-btn" style="flex: 1; margin: 0;" onclick="declineDraw()">Refuser</button>
+                <button style="flex: 1; margin: 0;" onclick="acceptDraw()">Accepter</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Resign Confirmation Modal -->
+    <div id="resign-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2>Abandonner ?</h2>
+            <p style="margin-bottom: 20px; opacity: 0.8;">Tu es sûr(e) ? La partie sera perdue.</p>
+            <div style="display: flex; gap: 10px; width: 100%;">
+                <button class="cancel-btn" style="flex: 1; margin: 0;"
+                    onclick="closeModal('resign-modal')">Annuler</button>
+                <button style="flex: 1; margin: 0; background: #ff6b6b;" onclick="confirmResign()">Abandonner</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Game Screen -->
     <div id="game-screen" class="hidden">
         <header>
@@ -341,6 +366,25 @@
                             <path d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" />
                         </svg>
                         Historique
+                    </div>
+                    <div class="dropdown-divider"></div>
+                    <div class="dropdown-item duo-only-item" id="draw-offer-item" onclick="proposeDraw()"
+                        style="display: none;">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20 6L9 17l-5-5" />
+                            <path d="M4 12l5 5L20 6" />
+                        </svg>
+                        Proposer nul
+                    </div>
+                    <div class="dropdown-item duo-only-item" id="resign-item" onclick="openResignModal()"
+                        style="display: none; color: #ff6b6b;">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+                            <line x1="4" y1="22" x2="4" y2="15" />
+                        </svg>
+                        Abandonner
                     </div>
                     <div class="dropdown-divider"></div>
                     <div class="dropdown-item" id="switch-duo-item" onclick="switchToDuo()" style="display: none;">

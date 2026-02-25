@@ -480,6 +480,9 @@ function updateModeBadge() {
     if (switchDuoItem) {
         switchDuoItem.style.display = gameMode === 'solo' ? '' : 'none';
     }
+    document.querySelectorAll('.duo-only-item').forEach(el => {
+        el.style.display = gameMode === 'duo' ? '' : 'none';
+    });
 }
 
 function updateOpponentName() {
@@ -902,6 +905,22 @@ async function updateGameState(data = {}) {
     if (data.white_time !== undefined) whiteTimeRemaining = data.white_time;
     if (data.black_time !== undefined) blackTimeRemaining = data.black_time;
     if (data.last_move_ts !== undefined) lastMoveTimestamp = data.last_move_ts;
+
+    // Draw offer
+    if (data.draw_offer && data.draw_offer !== myName) {
+        document.getElementById('draw-offer-modal').classList.remove('hidden');
+    }
+
+    // Resign
+    if (data.status === 'resigned' && data.resigned_by && data.resigned_by !== myName) {
+        const winner = myColor === 'w' ? 'Blancs' : 'Noirs';
+        showGameOver(winner);
+        return;
+    }
+    if (data.status === 'draw') {
+        showGameOver('draw');
+        return;
+    }
 
     // Update Last Move
     if (lastMoveStr) {
@@ -1913,6 +1932,46 @@ function triggerConfetti() {
         confetti(Object.assign({}, defaults, { particleCount, origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 } }));
         confetti(Object.assign({}, defaults, { particleCount, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 } }));
     }, 250);
+}
+
+function proposeDraw() {
+    settingsDropdown.classList.remove('active');
+    if (gameMode !== 'duo' || !GAME_ID) return;
+    supabase.from('games').update({ draw_offer: myName }).eq('id', GAME_ID);
+    statusEl.textContent = 'Proposition de nul envoyée...';
+    const item = document.getElementById('draw-offer-item');
+    if (item) {
+        item.style.pointerEvents = 'none';
+        item.style.opacity = '0.4';
+        setTimeout(() => { item.style.pointerEvents = ''; item.style.opacity = ''; }, 10000);
+    }
+}
+
+function acceptDraw() {
+    closeModal('draw-offer-modal');
+    if (!GAME_ID) return;
+    supabase.from('games').update({ draw_offer: null, status: 'draw' }).eq('id', GAME_ID);
+    showGameOver('draw');
+}
+
+function declineDraw() {
+    closeModal('draw-offer-modal');
+    if (!GAME_ID) return;
+    supabase.from('games').update({ draw_offer: null }).eq('id', GAME_ID);
+    statusEl.textContent = 'Proposition de nul refusée.';
+}
+
+function openResignModal() {
+    settingsDropdown.classList.remove('active');
+    document.getElementById('resign-modal').classList.remove('hidden');
+}
+
+function confirmResign() {
+    closeModal('resign-modal');
+    if (gameMode !== 'duo' || !GAME_ID) return;
+    const winner = myColor === 'w' ? 'Noirs' : 'Blancs';
+    supabase.from('games').update({ status: 'resigned', resigned_by: myName }).eq('id', GAME_ID);
+    showGameOver(winner);
 }
 
 function updateHistoryUI() {
