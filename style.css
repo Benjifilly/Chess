@@ -51,7 +51,7 @@ html {
 body {
     margin: 0;
     padding: 0;
-    padding-bottom: env(safe-area-inset-bottom);
+    padding-bottom: 0 !important;
     background-color: var(--bg-color);
     color: var(--text-color);
     font-family: 'Fredoka', sans-serif;
