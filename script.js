@@ -354,14 +354,13 @@ loginBtn.addEventListener('click', async () => {
         // Animation de succès
         const loginScreen = document.getElementById('login-screen');
         loginScreen.classList.add('login-success');
-        // triggerConfetti(); // Removed as requested
 
         myName = name;
         myNameEl.textContent = myName;
         opponentNameEl.textContent = myName === 'Benji' ? 'Sanaa' : 'Benji';
-        gameScreen.classList.remove('hidden');
-        restoreSoloState();
-        initGame();
+
+        // Show main menu instead of game screen directly
+        showMainMenu();
 
         // Attendre la fin de l'animation pour cacher l'écran de login
         setTimeout(() => {
@@ -395,10 +394,9 @@ function login(name) {
     opponentNameEl.textContent = myName === 'Benji' ? 'Sanaa' : 'Benji';
 
     loginScreen.classList.add('hidden');
-    gameScreen.classList.remove('hidden');
 
-    restoreSoloState();
-    initGame();
+    // Show main menu instead of game screen directly
+    showMainMenu();
 }
 
 function logout() {
@@ -748,15 +746,41 @@ async function makeBotMove() {
             }
         }
 
-        // Clamp Elo to Stockfish's supported UCI_Elo range (1320-3190)
-        targetElo = Math.max(1320, Math.min(3190, targetElo));
+        let moveApplied = false;
 
-        const botMove = await requestStockfishMove(game.fen(), targetElo);
-        clearTimeout(failsafe);
+        // Custom "bad AI" logic for extreme beginners (Elo < 1320)
+        // Since Stockfish's minimum is 1320, we forcibly mix in greedy depth-1 mistakes.
+        if (targetElo < 1320) {
+            // Error rate: e.g. 400 Elo = ~60% chance of making a beginner mistake, 1000 Elo = ~20% chance
+            const errorRate = Math.max(0, Math.min(0.8, (1320 - targetElo) / 1500));
 
-        // Validate: only apply the move if it's still the bot's turn (guards against tab-switch race)
-        if (botMove && isBotThinking && game.turn() === expectedTurn && !game.game_over()) {
-            await makeMove(botMove.from, botMove.to, botMove.promotion);
+            if (Math.random() < errorRate) {
+                // Play a sensible blunder: 1-ply search (greedy but blind to opponent responses)
+                const moves = game.moves({ verbose: true });
+                if (moves.length > 0) {
+                    await new Promise(resolve => setTimeout(resolve, 600 + Math.random() * 500));
+
+                    const sensibleMove = getSensibleBeginnerMove(game, moves);
+                    if (isBotThinking && game.turn() === expectedTurn && !game.game_over()) {
+                        await makeMove(sensibleMove.from, sensibleMove.to, sensibleMove.promotion);
+                        moveApplied = true;
+                        clearTimeout(failsafe);
+                    }
+                }
+            }
+        }
+
+        if (!moveApplied) {
+            // Clamp Elo to Stockfish's supported UCI_Elo range (1320-3190)
+            const sfElo = Math.max(1320, Math.min(3190, targetElo));
+
+            const botMove = await requestStockfishMove(game.fen(), sfElo);
+            clearTimeout(failsafe);
+
+            // Validate: only apply the move if it's still the bot's turn (guards against tab-switch race)
+            if (botMove && isBotThinking && game.turn() === expectedTurn && !game.game_over()) {
+                await makeMove(botMove.from, botMove.to, botMove.promotion);
+            }
         }
     } catch (e) {
         console.error('Erreur bot:', e);
@@ -766,6 +790,43 @@ async function makeBotMove() {
         updateStatus();
         saveSoloState();
     }
+}
+
+// Fonction pour simuler un joueur humain débutant: 
+// Voit les prises immédiates (profondeur 1) et les mats, mais est aveugle aux conséquences
+function getSensibleBeginnerMove(activeGame, moves) {
+    const pieceValues = { p: 10, n: 30, b: 30, r: 50, q: 90, k: 900 };
+    const myTurn = activeGame.turn();
+
+    const evaluateBoard = (board) => {
+        let score = 0;
+        for (let r = 0; r < 8; r++) {
+            for (let c = 0; c < 8; c++) {
+                const piece = board[r][c];
+                if (piece && piece.color === myTurn) score += pieceValues[piece.type];
+                else if (piece) score -= pieceValues[piece.type];
+            }
+        }
+        return score;
+    };
+
+    let scoredMoves = [];
+    for (const m of moves) {
+        activeGame.move(m);
+        // Ajout d'un peu d'aléatoire pour varier et ne pas toujours prendre la première pièce venue
+        let score = evaluateBoard(activeGame.board()) + (Math.random() * 5);
+        if (activeGame.in_checkmate()) score += 10000;
+
+        scoredMoves.push({ move: m, score: score });
+        activeGame.undo();
+    }
+
+    // Trie du meilleur coup immédiat au pire
+    scoredMoves.sort((a, b) => b.score - a.score);
+
+    // Prend un des coups parmi le Top 3 (simule l'hésitation ou un visionnement partiel)
+    const poolSize = Math.min(3, scoredMoves.length);
+    return scoredMoves[Math.floor(Math.random() * poolSize)].move;
 }
 
 function switchToDuo() {
@@ -1752,11 +1813,11 @@ async function makeMove(from, to) {
             }
         }
 
+        // Save game state after every move (both modes)
+        saveGameState();
+
         if (gameMode === 'solo' && game.turn() !== myColor && !game.game_over()) {
-            saveSoloState();
             makeBotMove();
-        } else if (gameMode === 'solo') {
-            saveSoloState();
         }
     } else {
         selectedSquare = null;
@@ -1944,6 +2005,9 @@ const LOSE_MESSAGES = [
 function showGameOver(winner) {
     if (sessionStorage.getItem('gameOverShown') === 'true') return;
     sessionStorage.setItem('gameOverShown', 'true');
+
+    // Clear the saved game since the game is over
+    clearGameSave(gameMode);
 
     gameOverModal.classList.remove('hidden');
     if (winner === 'draw') {
@@ -2608,3 +2672,712 @@ function restoreSoloState() {
 function clearSoloState() {
     localStorage.removeItem('chess_solo_state');
 }
+
+// ================================================================
+// MAIN MENU SYSTEM
+// ================================================================
+
+// Menu DOM elements (lazily initialized to avoid TDZ issues)
+let mainMenuEl, soloCard, duoCard, soloSettings, duoSettings;
+let menuEloSlider, menuEloDisplay, soloLaunchBtn, duoLaunchBtn;
+let menuDomReady = false;
+
+function ensureMenuDom() {
+    if (menuDomReady) return;
+    mainMenuEl = document.getElementById('main-menu');
+    soloCard = document.getElementById('menu-solo-card');
+    duoCard = document.getElementById('menu-duo-card');
+    soloSettings = document.getElementById('menu-solo-settings');
+    duoSettings = document.getElementById('menu-duo-settings');
+    menuEloSlider = document.getElementById('menu-elo-slider');
+    menuEloDisplay = document.getElementById('menu-elo-display');
+    soloLaunchBtn = document.getElementById('menu-solo-launch');
+    duoLaunchBtn = document.getElementById('menu-duo-launch');
+    menuDomReady = true;
+}
+
+// Menu state
+let menuSoloElo = 400;
+let menuSoloDiff = 1;
+let menuSoloColor = null;
+let menuDuoColor = null;
+
+// --- Show / Hide Main Menu ---
+
+function showMainMenu() {
+    ensureMenuDom();
+    setupMenuListeners();
+
+    // Ensure game screen is hidden
+    gameScreen.classList.add('hidden');
+    gameScreen.classList.remove('game-enter', 'game-exit');
+
+    // Reset menu card states
+    soloCard.classList.remove('expanded');
+    duoCard.classList.remove('expanded');
+    menuSoloColor = null;
+    menuDuoColor = null;
+
+    // Reset color button selections
+    document.querySelectorAll('#menu-solo-settings .menu-color-btn').forEach(b => b.classList.remove('selected'));
+    document.querySelectorAll('#menu-duo-settings .menu-color-btn').forEach(b => b.classList.remove('selected'));
+    soloLaunchBtn.disabled = true;
+    duoLaunchBtn.disabled = true;
+
+    // Restore last-used settings
+    restoreMenuSettings();
+
+    // Check for saved games
+    checkSavedGames();
+
+    // Show menu
+    mainMenuEl.classList.remove('hidden');
+}
+
+function restoreMenuSettings() {
+    const saved = localStorage.getItem('chess_new_game_settings');
+    if (!saved) return;
+    try {
+        const s = JSON.parse(saved);
+        // Restore Elo
+        if (typeof s.botEloOverride === 'number') {
+            menuSoloElo = s.botEloOverride;
+            menuSoloDiff = s.botDifficulty || 1;
+            menuEloSlider.value = menuSoloElo;
+            menuEloDisplay.textContent = menuSoloElo + ' ELO';
+            // Update preset buttons
+            document.querySelectorAll('.menu-elo-btn').forEach(btn => {
+                btn.classList.toggle('selected', parseInt(btn.dataset.elo) === menuSoloElo);
+            });
+        }
+    } catch (e) { /* ignore */ }
+}
+
+// --- Card Expand/Collapse ---
+
+function toggleCardExpand(card, otherCard) {
+    const isExpanding = !card.classList.contains('expanded');
+
+    // Collapse the other card
+    otherCard.classList.remove('expanded');
+
+    if (isExpanding) {
+        card.classList.add('expanded');
+    } else {
+        card.classList.remove('expanded');
+    }
+}
+
+// --- Setup Menu Event Listeners (called once DOM is ready) ---
+let menuListenersAttached = false;
+
+function setupMenuListeners() {
+    if (menuListenersAttached) return;
+    ensureMenuDom();
+    if (!soloCard || !duoCard) return; // DOM not ready yet
+    menuListenersAttached = true;
+
+    // Solo card click
+    soloCard.addEventListener('click', (e) => {
+        if (soloCard.classList.contains('expanded') && e.target.closest('.menu-card-settings')) return;
+        if (soloCard.classList.contains('expanded') && !e.target.closest('.menu-card-front')) return;
+        toggleCardExpand(soloCard, duoCard);
+    });
+
+    // Duo card click
+    duoCard.addEventListener('click', (e) => {
+        if (duoCard.classList.contains('expanded') && e.target.closest('.menu-card-settings')) return;
+        if (duoCard.classList.contains('expanded') && !e.target.closest('.menu-card-front')) return;
+        toggleCardExpand(duoCard, soloCard);
+    });
+
+    // Elo Preset Buttons
+    document.querySelectorAll('.menu-elo-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const elo = parseInt(btn.dataset.elo);
+            const diff = parseInt(btn.dataset.diff);
+            menuSoloElo = elo;
+            menuSoloDiff = diff;
+            menuEloSlider.value = elo;
+            menuEloDisplay.textContent = elo + ' ELO';
+            document.querySelectorAll('.menu-elo-btn').forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+        });
+    });
+
+    // Elo Slider
+    menuEloSlider.addEventListener('input', (e) => {
+        e.stopPropagation();
+        const val = parseInt(menuEloSlider.value);
+        menuSoloElo = val;
+        menuEloDisplay.textContent = val + ' ELO';
+
+        let matchedPreset = false;
+        document.querySelectorAll('.menu-elo-btn').forEach(btn => {
+            const isMatch = parseInt(btn.dataset.elo) === val;
+            btn.classList.toggle('selected', isMatch);
+            if (isMatch) {
+                menuSoloDiff = parseInt(btn.dataset.diff);
+                matchedPreset = true;
+            }
+        });
+        if (!matchedPreset) {
+            if (val <= 400) menuSoloDiff = 1;
+            else if (val <= 800) menuSoloDiff = 3;
+            else if (val <= 1500) menuSoloDiff = 4;
+            else menuSoloDiff = 5;
+        }
+    });
+
+    // Color Selection (Solo)
+    document.querySelectorAll('#menu-solo-settings .menu-color-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            menuSoloColor = btn.dataset.color;
+            document.querySelectorAll('#menu-solo-settings .menu-color-btn').forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+            soloLaunchBtn.disabled = false;
+        });
+    });
+
+    // Color Selection (Duo)
+    document.querySelectorAll('#menu-duo-settings .menu-color-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            menuDuoColor = btn.dataset.color;
+            document.querySelectorAll('#menu-duo-settings .menu-color-btn').forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+            duoLaunchBtn.disabled = false;
+        });
+    });
+
+    // Launch Solo Game
+    soloLaunchBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!menuSoloColor) return;
+
+        gameMode = 'solo';
+        botEloOverride = menuSoloElo;
+        botDifficulty = menuSoloDiff;
+        selectedColorChoice = menuSoloColor;
+        selectedTimeChoice = 0;
+
+        localStorage.setItem('chess_new_game_settings', JSON.stringify({
+            mode: 'solo',
+            color: menuSoloColor,
+            time: 0,
+            botDifficulty: menuSoloDiff,
+            botEloOverride: menuSoloElo
+        }));
+
+        let whitePlayerName = myName;
+        if (menuSoloColor === 'black') {
+            whitePlayerName = 'Bot';
+        } else if (menuSoloColor === 'random') {
+            whitePlayerName = Math.random() < 0.5 ? myName : 'Bot';
+        }
+
+        game.reset();
+        lastMove = null;
+        viewIndex = null;
+        isBotThinking = false;
+
+        myColor = (whitePlayerName === myName) ? 'w' : 'b';
+        boardFlipped = (myColor === 'b');
+
+        timeControl = 0;
+        whiteTimeRemaining = 0;
+        blackTimeRemaining = 0;
+        lastMoveTimestamp = Date.now();
+
+        transitionMenuToGame(() => {
+            renderBoard();
+            updateStatus();
+            startTimer();
+            updateModeBadge();
+            updateOpponentName();
+            sessionStorage.removeItem('gameOverShown');
+            saveGameState();
+
+            if (game.turn() !== myColor) {
+                makeBotMove();
+            }
+        });
+    });
+
+    // Launch Duo Game
+    duoLaunchBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!menuDuoColor) return;
+
+        const saves = getSavedGames();
+        if (saves && saves.duo) {
+            document.getElementById('resume-duo-modal').classList.remove('hidden');
+            return;
+        }
+
+        startNewDuoGame();
+    });
+}
+
+function confirmNewDuoGame() {
+    closeModal('resume-duo-modal');
+    startNewDuoGame();
+}
+
+function resumeExistingDuoGame() {
+    closeModal('resume-duo-modal');
+    // Using existing resumeGame functionality
+    resumeGame('duo');
+}
+
+function startNewDuoGame() {
+
+    gameMode = 'duo';
+    selectedColorChoice = menuDuoColor;
+    selectedTimeChoice = 5;
+
+    localStorage.setItem('chess_new_game_settings', JSON.stringify({
+        mode: 'duo',
+        color: menuDuoColor,
+        time: 5,
+        botDifficulty: botDifficulty,
+        botEloOverride: botEloOverride
+    }));
+
+    let whitePlayerName = myName;
+    if (menuDuoColor === 'black') {
+        whitePlayerName = myName === 'Benji' ? 'Sanaa' : 'Benji';
+    } else if (menuDuoColor === 'random') {
+        whitePlayerName = Math.random() < 0.5 ? 'Benji' : 'Sanaa';
+    }
+
+    game.reset();
+    lastMove = null;
+    viewIndex = null;
+    isBotThinking = false;
+
+    myColor = (whitePlayerName === myName) ? 'w' : 'b';
+    boardFlipped = (myColor === 'b');
+
+    timeControl = selectedTimeChoice * 60 * 1000;
+    whiteTimeRemaining = timeControl;
+    blackTimeRemaining = timeControl;
+    lastMoveTimestamp = Date.now();
+
+    clearSoloState();
+
+    transitionMenuToGame(() => {
+        renderBoard();
+        updateStatus();
+        startTimer();
+        updateModeBadge();
+        updateOpponentName();
+        sessionStorage.removeItem('gameOverShown');
+        saveGameState();
+
+        if (supabaseClient) {
+            initGame();
+        }
+    });
+}
+
+// --- Transition: Menu → Game ---
+function transitionMenuToGame(callback) {
+    mainMenuEl.classList.add('menu-exit');
+
+    setTimeout(() => {
+        mainMenuEl.classList.add('hidden');
+        mainMenuEl.classList.remove('menu-exit');
+
+        gameScreen.classList.remove('hidden');
+        gameScreen.classList.add('game-enter');
+
+        if (callback) callback();
+
+        setTimeout(() => {
+            gameScreen.classList.remove('game-enter');
+        }, 500);
+    }, 400);
+}
+
+// --- Transition: Game → Menu ---
+function transitionGameToMenu() {
+    gameScreen.classList.add('game-exit');
+
+    setTimeout(() => {
+        gameScreen.classList.add('hidden');
+        gameScreen.classList.remove('game-exit');
+
+        // Stop timers
+        if (timerInterval) clearInterval(timerInterval);
+
+        showMainMenu();
+        mainMenuEl.classList.add('menu-enter');
+
+        setTimeout(() => {
+            mainMenuEl.classList.remove('menu-enter');
+        }, 500);
+    }, 400);
+}
+
+// --- Return to Menu (from game screen) ---
+function returnToMenu() {
+    // Save current game state before leaving
+    saveGameState();
+
+    // Close any open dropdowns/modals
+    settingsDropdown.classList.remove('active');
+
+    transitionGameToMenu();
+}
+
+// --- Unified Game Save System ---
+
+function saveGameState() {
+    // Don't save if game is over
+    if (game.game_over()) return;
+
+    const saves = getSavedGames();
+    const history = game.history();
+
+    const state = {
+        fen: game.fen(),
+        pgn: game.pgn(),
+        gameMode: gameMode,
+        myColor: myColor,
+        botDifficulty: botDifficulty,
+        botEloOverride: botEloOverride,
+        whiteTimeRemaining: whiteTimeRemaining,
+        blackTimeRemaining: blackTimeRemaining,
+        timeControl: timeControl,
+        lastMoveTimestamp: lastMoveTimestamp,
+        moveCount: history.length,
+        turn: game.turn(),
+        timestamp: new Date().toISOString()
+    };
+
+    saves[gameMode] = state;
+    localStorage.setItem('chess_game_saves', JSON.stringify(saves));
+
+    // Also keep backward-compatible solo state
+    if (gameMode === 'solo') {
+        saveSoloState();
+    }
+}
+
+function getSavedGames() {
+    try {
+        const raw = localStorage.getItem('chess_game_saves');
+        return raw ? JSON.parse(raw) : {};
+    } catch (e) {
+        return {};
+    }
+}
+
+function clearGameSave(mode) {
+    const saves = getSavedGames();
+    delete saves[mode];
+    localStorage.setItem('chess_game_saves', JSON.stringify(saves));
+
+    if (mode === 'solo') {
+        clearSoloState();
+    }
+}
+
+// --- Saved Games Detection & Rendering ---
+
+function checkSavedGames() {
+    const saves = getSavedGames();
+    const section = document.getElementById('saved-games-section');
+    const list = document.getElementById('saved-games-list');
+
+    // Also check for legacy solo state
+    migrateLegacySoloSave(saves);
+
+    const keys = Object.keys(saves);
+    if (keys.length === 0) {
+        section.classList.add('hidden');
+        return;
+    }
+
+    // Filter out saves with no moves (fresh games)
+    const validSaves = keys.filter(k => saves[k] && saves[k].moveCount > 0);
+    if (validSaves.length === 0) {
+        section.classList.add('hidden');
+        return;
+    }
+
+    section.classList.remove('hidden');
+    list.innerHTML = '';
+
+    validSaves.forEach((key, index) => {
+        const save = saves[key];
+        const card = createSavedGameCard(key, save, index);
+        list.appendChild(card);
+    });
+}
+
+function migrateLegacySoloSave(saves) {
+    // If there's an old-format solo save but no new-format one, migrate it
+    if (!saves.solo) {
+        const legacy = localStorage.getItem('chess_solo_state');
+        if (legacy) {
+            try {
+                const old = JSON.parse(legacy);
+                if (old.fen && old.gameMode === 'solo') {
+                    // Count moves from PGN
+                    let moveCount = 0;
+                    if (old.pgn) {
+                        const tempGame = new Chess();
+                        tempGame.load_pgn(old.pgn);
+                        moveCount = tempGame.history().length;
+                    }
+
+                    saves.solo = {
+                        fen: old.fen,
+                        pgn: old.pgn || '',
+                        gameMode: 'solo',
+                        myColor: old.myColor,
+                        botDifficulty: old.botDifficulty || 3,
+                        botEloOverride: old.botEloOverride || null,
+                        whiteTimeRemaining: old.whiteTimeRemaining || 0,
+                        blackTimeRemaining: old.blackTimeRemaining || 0,
+                        timeControl: old.timeControl || 0,
+                        lastMoveTimestamp: old.lastMoveTimestamp || Date.now(),
+                        moveCount: moveCount,
+                        turn: old.fen ? old.fen.split(' ')[1] : 'w',
+                        timestamp: new Date().toISOString()
+                    };
+                    localStorage.setItem('chess_game_saves', JSON.stringify(saves));
+                }
+            } catch (e) { /* ignore */ }
+        }
+    }
+}
+
+// Pending delete state (for confirmation modal)
+let pendingDeleteKey = null;
+let pendingDeleteCard = null;
+
+function createSavedGameCard(key, save, index) {
+    const card = document.createElement('div');
+    card.className = 'saved-game-card';
+    card.style.animationDelay = (index * 0.08) + 's';
+
+    const isSolo = save.gameMode === 'solo';
+    const turnColor = save.turn === 'w' ? 'Blancs' : 'Noirs';
+    const turnDotClass = save.turn === 'w' ? 'white' : 'black';
+    const eloText = isSolo && save.botEloOverride ? save.botEloOverride + ' ELO' : '';
+
+    // Format date/time
+    let dateText = '';
+    if (save.timestamp) {
+        try {
+            const d = new Date(save.timestamp);
+            const day = d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+            const time = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+            dateText = `${day} – ${time}`;
+        } catch (e) { /* ignore */ }
+    }
+
+    card.innerHTML = `
+        <div class="saved-game-info">
+            <div class="saved-game-mode">
+                <span class="mode-tag ${isSolo ? 'solo' : 'duo'}">${isSolo ? 'SOLO' : 'DUO'}</span>
+                ${eloText ? `<span class="elo-tag">${eloText}</span>` : ''}
+            </div>
+            <div class="saved-game-turn">
+                <span class="turn-dot ${turnDotClass}"></span>
+                Tour des ${turnColor}
+            </div>
+            <div class="saved-game-moves">${save.moveCount} coup${save.moveCount > 1 ? 's' : ''} joué${save.moveCount > 1 ? 's' : ''}</div>
+            ${dateText ? `<div class="saved-game-date">${dateText}</div>` : ''}
+        </div>
+        <div class="saved-game-actions">
+            <button class="resume-btn">Reprendre</button>
+            <button class="delete-save-btn" title="Supprimer">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    <line x1="10" y1="11" x2="10" y2="17"></line>
+                    <line x1="14" y1="11" x2="14" y2="17"></line>
+                </svg>
+            </button>
+        </div>
+    `;
+
+    // Resume button
+    card.querySelector('.resume-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        resumeGame(key);
+    });
+
+    // Delete button — show confirmation modal
+    card.querySelector('.delete-save-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        pendingDeleteKey = key;
+        pendingDeleteCard = card;
+        openModal('delete-save-modal');
+    });
+
+    return card;
+}
+
+function confirmDeleteSave() {
+    if (!pendingDeleteKey) return;
+    const key = pendingDeleteKey;
+    const card = pendingDeleteCard;
+    pendingDeleteKey = null;
+    pendingDeleteCard = null;
+
+    closeModal('delete-save-modal');
+
+    // Handle Supabase cleanup for duo games
+    if (key === 'duo' && supabaseClient) {
+        deleteDuoGameFromSupabase();
+    }
+
+    // Remove from localStorage
+    clearGameSave(key);
+
+    // Animate card removal
+    if (card) {
+        card.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+        card.style.opacity = '0';
+        card.style.transform = 'translateX(20px)';
+        setTimeout(() => {
+            card.remove();
+            const list = document.getElementById('saved-games-list');
+            if (list && list.children.length === 0) {
+                document.getElementById('saved-games-section').classList.add('hidden');
+            }
+        }, 300);
+    }
+}
+
+async function deleteDuoGameFromSupabase() {
+    if (!supabaseClient || !GAME_ID) return;
+    try {
+        // Reset the game state in Supabase so both players see a clean slate
+        await supabaseClient
+            .from('chess_state')
+            .update({
+                fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+                last_move: '',
+                pgn: '',
+                white_time: null,
+                black_time: null,
+                last_move_ts: null,
+                status: 'deleted',
+                draw_offer: null,
+                draw_rejected: null,
+                resigned_by: null
+            })
+            .eq('id', GAME_ID);
+        console.log('Duo game deleted from Supabase');
+    } catch (e) {
+        console.error('Erreur suppression Supabase:', e);
+    }
+}
+
+function deleteSave(key) {
+    clearGameSave(key);
+}
+
+// --- Resume a Saved Game ---
+
+function resumeGame(key) {
+    const saves = getSavedGames();
+    const save = saves[key];
+    if (!save) return;
+
+    // Restore game state
+    gameMode = save.gameMode;
+    myColor = save.myColor;
+    botDifficulty = save.botDifficulty || 3;
+    botEloOverride = save.botEloOverride || null;
+    timeControl = save.timeControl || 0;
+    whiteTimeRemaining = save.whiteTimeRemaining || 0;
+    blackTimeRemaining = save.blackTimeRemaining || 0;
+    lastMoveTimestamp = save.lastMoveTimestamp || Date.now();
+
+    game.reset();
+    if (save.pgn && save.pgn.trim()) {
+        game.load_pgn(save.pgn);
+    } else if (save.fen) {
+        game.load(save.fen);
+    }
+
+    boardFlipped = (myColor === 'b');
+    lastMove = null;
+    viewIndex = null;
+    isBotThinking = false;
+
+    // Reconstruct lastMove from history
+    const history = game.history({ verbose: true });
+    if (history.length > 0) {
+        const last = history[history.length - 1];
+        lastMove = { from: last.from, to: last.to };
+    }
+
+    // Transition to game
+    transitionMenuToGame(() => {
+        renderBoard();
+        updateStatus();
+        updateModeBadge();
+        updateOpponentName();
+        startTimer();
+        sessionStorage.removeItem('gameOverShown');
+
+        // If solo and bot's turn, trigger bot move
+        if (gameMode === 'solo' && game.turn() !== myColor && !game.game_over()) {
+            makeBotMove();
+        }
+
+        // If duo, init Supabase
+        if (gameMode === 'duo' && supabaseClient) {
+            initGame();
+        }
+    });
+}
+
+// --- Parallax Effect for Desktop Background (smooth lerp) ---
+(function () {
+    let targetX = 0, targetY = 0;
+    let currentX = 0, currentY = 0;
+    let rafId = null;
+
+    document.addEventListener('mousemove', (e) => {
+        if (window.innerWidth <= 768) return;
+        targetX = (e.clientX / window.innerWidth - 0.5) * -24;
+        targetY = (e.clientY / window.innerHeight - 0.5) * -24;
+        if (!rafId) rafId = requestAnimationFrame(lerpParallax);
+    });
+
+    function lerpParallax() {
+        const mainMenu = document.getElementById('main-menu');
+        if (!mainMenu || mainMenu.classList.contains('hidden')) {
+            rafId = null;
+            return;
+        }
+        const bg = document.querySelector('.menu-bg');
+        if (!bg) { rafId = null; return; }
+
+        // Smooth interpolation (lerp factor 0.08 = very smooth)
+        currentX += (targetX - currentX) * 0.08;
+        currentY += (targetY - currentY) * 0.08;
+
+        bg.style.setProperty('--px', `${currentX}px`);
+        bg.style.setProperty('--py', `${currentY}px`);
+
+        // Keep animating until close enough
+        if (Math.abs(targetX - currentX) > 0.05 || Math.abs(targetY - currentY) > 0.05) {
+            rafId = requestAnimationFrame(lerpParallax);
+        } else {
+            rafId = null;
+        }
+    }
+})();
