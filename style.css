@@ -71,6 +71,12 @@ body {
     overscroll-behavior: none;
 }
 
+html,
+body {
+    padding-bottom: 0 !important;
+    margin-bottom: 0 !important;
+}
+
 /* Allow scrolling in specific areas */
 .history-container,
 .dropdown,
