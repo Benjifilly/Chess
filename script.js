@@ -222,9 +222,15 @@ function initializeApp() {
 }
 
 async function checkLogin() {
-    if (!supabaseClient) return;
+    if (!supabaseClient) {
+        // Offline complet
+        const savedName = localStorage.getItem('chess_user_name');
+        if (savedName) login(savedName);
+        return;
+    }
 
     const { data: { session } } = await supabaseClient.auth.getSession();
+
     if (session) {
         // Find which user it is based on email
         const email = session.user.email;
@@ -232,11 +238,9 @@ async function checkLogin() {
         localStorage.setItem('chess_user_name', name);
         login(name);
     } else {
-        const savedName = localStorage.getItem('chess_user_name');
-        if (savedName) {
-            // Fallback for solo mode offline, might force re-login for duo though
-            login(savedName);
-        }
+        // Plus de session Supabase valide : on force la reconnexion
+        // Le loginScreen est affiché par défaut au chargement.
+        localStorage.removeItem('chess_user_name');
     }
 }
 
