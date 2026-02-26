@@ -3,11 +3,6 @@ let supabaseClient = null;
 
 // Configuration Jeu
 const GAME_ID = CONFIG.GAME_ID; // ID unique pour la partie
-const SALT = 'ChessDuo_Salt_2024!';
-const PLAYER_HASHES = {
-    '450b02e834204bad2503ee356eeb190e92ad1ada765e69e058e094fa39b45fe0': 'Benji',
-    '97ad62dd650af6c9af2b30df0963a09f40782ff0a4ad8cc976e4ab519e3e1fd9': 'Sanaa'
-};
 
 let game = null;
 let myColor = null; // 'w' or 'b'
@@ -226,12 +221,22 @@ function initializeApp() {
     }
 }
 
-function checkLogin() {
-    const savedName = localStorage.getItem('chess_user_name');
-    if (savedName) {
-        // On fait confiance au localStorage pour la persistance simple
-        // (Pour une vraie sécu, il faudrait un token, mais ici on veut juste éviter de retaper le mdp)
-        login(savedName);
+async function checkLogin() {
+    if (!supabaseClient) return;
+
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if (session) {
+        // Find which user it is based on email
+        const email = session.user.email;
+        const name = email === 'benji@chess.local' ? 'Benji' : 'Sanaa';
+        localStorage.setItem('chess_user_name', name);
+        login(name);
+    } else {
+        const savedName = localStorage.getItem('chess_user_name');
+        if (savedName) {
+            // Fallback for solo mode offline, might force re-login for duo though
+            login(savedName);
+        }
     }
 }
 
@@ -344,48 +349,74 @@ loginBtn.addEventListener('click', async () => {
     const code = passwordInput.value.trim();
     if (!code) return;
 
-    // Hash input with salt
-    const encoder = new TextEncoder();
-    const data = encoder.encode(code + SALT);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    if (!supabaseClient) {
+        loginError.textContent = "Erreur de connexion au serveur";
+        return;
+    }
 
-    if (PLAYER_HASHES[hashHex]) {
-        const name = PLAYER_HASHES[hashHex];
-        localStorage.setItem('chess_user_name', name); // Store name instead of code
+    loginBtn.textContent = 'Connexion...';
+    loginBtn.disabled = true;
 
-        // Animation de succès
-        const loginScreen = document.getElementById('login-screen');
-        loginScreen.classList.add('login-success');
+    try {
+        let name = null;
 
-        myName = name;
-        myNameEl.textContent = myName;
-        opponentNameEl.textContent = myName === 'Benji' ? 'Sanaa' : 'Benji';
+        // Try Benji
+        let { data, error } = await supabaseClient.auth.signInWithPassword({
+            email: 'benji@chess.local',
+            password: code
+        });
 
-        // Setup presence channel early so it works on the menu screen
-        if (supabaseClient) {
-            setupPresence();
+        if (!error && data.session) {
+            name = 'Benji';
+        } else {
+            // Try Sanaa
+            const res = await supabaseClient.auth.signInWithPassword({
+                email: 'sanaa@chess.local',
+                password: code
+            });
+            if (!res.error && res.data.session) {
+                name = 'Sanaa';
+            }
         }
 
-        // Show main menu instead of game screen directly
-        showMainMenu();
+        if (name) {
+            localStorage.setItem('chess_user_name', name);
 
-        // Attendre la fin de l'animation pour cacher l'écran de login
-        setTimeout(() => {
-            loginScreen.classList.add('hidden');
-            loginScreen.classList.remove('login-success');
-        }, 800);
+            // Animation de succès
+            const loginScreen = document.getElementById('login-screen');
+            loginScreen.classList.add('login-success');
 
-    } else {
-        loginError.textContent = "Code incorrect";
-        passwordInput.value = '';
+            myName = name;
+            myNameEl.textContent = myName;
+            opponentNameEl.textContent = myName === 'Benji' ? 'Sanaa' : 'Benji';
 
-        // Shake animation
-        const container = document.querySelector('.login-container');
-        container.classList.remove('shake');
-        void container.offsetWidth; // trigger reflow
-        container.classList.add('shake');
+            // Setup presence channel
+            setupPresence();
+
+            // Show main menu
+            showMainMenu();
+
+            setTimeout(() => {
+                loginScreen.classList.add('hidden');
+                loginScreen.classList.remove('login-success');
+            }, 800);
+
+        } else {
+            loginError.textContent = "Code incorrect";
+            passwordInput.value = '';
+
+            // Shake animation
+            const container = document.querySelector('.login-container');
+            container.classList.remove('shake');
+            void container.offsetWidth; // trigger reflow
+            container.classList.add('shake');
+        }
+    } catch (err) {
+        console.error("Login error", err);
+        loginError.textContent = "Erreur inattendue";
+    } finally {
+        loginBtn.textContent = "C'est parti !";
+        loginBtn.disabled = false;
     }
 });
 
@@ -414,8 +445,13 @@ function login(name) {
 }
 
 function logout() {
-    localStorage.removeItem('chess_user_name');
-    location.reload();
+    if (confirm('Voulez-vous vraiment vous déconnecter ?')) {
+        if (supabaseClient) {
+            supabaseClient.auth.signOut();
+        }
+        localStorage.removeItem('chess_user_name');
+        location.reload();
+    }
 }
 
 // --- MODALS & SETTINGS ---

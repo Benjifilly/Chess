@@ -2003,19 +2003,6 @@ footer {
     font-size: 56px;
     display: inline-block;
     filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.4));
-    animation: menuLogoPulse 3s ease-in-out infinite;
-}
-
-@keyframes menuLogoPulse {
-
-    0%,
-    100% {
-        transform: scale(1) rotate(0deg);
-    }
-
-    50% {
-        transform: scale(1.05) rotate(2deg);
-    }
 }
 
 .menu-title {
@@ -2069,25 +2056,25 @@ footer {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 14px 16px;
-    background: rgba(255, 255, 255, 0.05);
+    padding: 16px 18px;
+    background: rgba(255, 255, 255, 0.04);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 14px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 16px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
     transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
     animation: menuFadeInUp 0.4s ease-out both;
 }
 
 .saved-game-card:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.07);
 }
 
 .saved-game-info {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 3px;
     flex: 1;
     min-width: 0;
 }
@@ -2099,12 +2086,12 @@ footer {
 }
 
 .saved-game-mode .mode-tag {
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    padding: 2px 8px;
-    border-radius: 6px;
+    letter-spacing: 0.8px;
+    padding: 3px 10px;
+    border-radius: 20px;
     background: rgba(136, 176, 75, 0.2);
     color: var(--accent);
 }
@@ -2129,87 +2116,89 @@ footer {
 .saved-game-turn {
     display: flex;
     align-items: center;
-    gap: 6px;
-    font-size: 13px;
-    font-weight: 500;
+    gap: 8px;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-color);
+    margin-top: 4px;
 }
 
 .saved-game-turn .turn-dot {
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
     flex-shrink: 0;
-}
-
-.saved-game-turn .turn-dot.white {
-    background: #f0f0f0;
-    box-shadow: 0 0 6px rgba(240, 240, 240, 0.4);
-}
-
-.saved-game-turn .turn-dot.black {
-    background: #333;
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: transparent !important;
+    border: 1.5px solid currentColor !important;
+    opacity: 0.6;
+    box-shadow: none !important;
+    margin-left: 2px;
 }
 
 .saved-game-moves {
-    font-size: 12px;
-    opacity: 0.4;
+    font-size: 13px;
+    opacity: 0.5;
+    margin-left: 19px;
+    margin-top: 2px;
 }
 
 .saved-game-date {
-    font-size: 11px;
-    opacity: 0.35;
-    margin-top: 2px;
+    font-size: 12px;
+    opacity: 0.4;
+    color: var(--text-color);
+    margin-left: 19px;
+    margin-top: 4px;
 }
 
 .saved-game-actions {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     flex-shrink: 0;
-    margin-left: 12px;
+    margin-left: 14px;
 }
 
 .saved-game-actions .resume-btn {
-    padding: 10px 20px;
+    flex: 1 1 0%;
+    padding: 12px 24px;
     border: none;
-    border-radius: 50px;
-    background: var(--accent);
+    border-radius: 16px;
+    background-color: rgb(134, 189, 74);
     color: white;
-    font-family: 'Quicksand', sans-serif;
-    font-size: 14px;
-    font-weight: bold;
+    font-family: 'Fredoka', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
     cursor: pointer;
-    transition: transform 0.1s, filter 0.3s;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    transition: transform 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 4px 0 rgb(117, 166, 64);
 }
 
-.saved-game-actions .resume-btn:hover {
-    filter: brightness(0.85);
+.saved-game-actions .resume-btn:active {
+    transform: scale(0.97);
 }
 
 .saved-game-actions .delete-save-btn {
-    width: 42px;
-    height: 42px;
+    width: 44px;
+    height: 44px;
     border: none;
-    border-radius: 12px;
-    background: rgba(255, 107, 107, 0.1);
-    color: #ff6b6b;
+    border-radius: 16px;
+    background-color: rgba(255, 107, 107, 0.08);
+    color: rgb(248, 113, 113);
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background 0.15s ease;
+    transition: transform 150ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .saved-game-actions .delete-save-btn svg {
-    width: 26px !important;
-    height: 26px !important;
-    stroke-width: 2.2px !important;
+    width: 24px !important;
+    height: 24px !important;
+    stroke-width: 2px !important;
 }
 
-.saved-game-actions .delete-save-btn:hover {
-    background: rgba(255, 107, 107, 0.2);
+.saved-game-actions .delete-save-btn:active {
+    transform: scale(0.93);
 }
 
 /* --- Mode Cards Container --- */
