@@ -26,6 +26,9 @@ let botDifficulty = 1;
 let isBotThinking = false; // Mutex: true while a Stockfish search is in progress
 let duoInitializing = false; // Flag to ignore stale Supabase states during new game init
 
+// Anti-spam for system notices (leave / etc.)
+let lastSystemNoticeAt = 0;
+
 // Track last game params for "Rejouer" (replay with same settings)
 let lastGameParams = null;
 
@@ -442,6 +445,7 @@ function login(name) {
     // Setup presence channel early so it works on the menu screen
     if (supabaseClient) {
         setupPresence();
+        setupGlobalRealtime();
     }
 
     // Show main menu instead of game screen directly
@@ -614,6 +618,33 @@ function openModal(modalId) {
 
 function closeModal(modalId) {
     document.getElementById(modalId).classList.add('hidden');
+}
+
+async function sendSystemChatMessage(message) {
+    if (!supabaseClient || !GAME_ID) return;
+    const msg = (message || '').trim();
+    if (!msg) return;
+    try {
+        // Avoid duplicate \"quitté la partie\" announcements for this game
+        const { data } = await supabaseClient
+            .from('chess_chat')
+            .select('sender,message')
+            .eq('game_id', GAME_ID)
+            .order('created_at', { ascending: false })
+            .limit(1);
+        if (data && data.length > 0) {
+            const last = data[0];
+            if (last.sender === 'Système' && last.message.includes('a quitté la partie')) {
+                return;
+            }
+        }
+
+        await supabaseClient
+            .from('chess_chat')
+            .insert([{ game_id: GAME_ID, sender: 'Système', message: msg }]);
+    } catch (e) {
+        console.warn('Erreur message système chat:', e);
+    }
 }
 
 // Close modal when clicking outside
@@ -962,32 +993,109 @@ async function initGame() {
     setupChatSubscription();
 }
 
-function setupRealtimeSubscription() {
+// --- GLOBAL REALTIME NOTIFICATIONS ---
+let globalRealtimeChannel = null;
+
+function setupGlobalRealtime() {
     if (!supabaseClient) return;
 
-    // Clean up existing channels first to be safe
-    const channels = supabaseClient.getChannels();
-    channels.forEach(channel => {
-        if (channel.topic.includes('chess_state')) {
-            console.log('Removing existing channel:', channel.topic);
-            supabaseClient.removeChannel(channel);
-        }
-    });
-
-    try {
-        console.log('Setting up new realtime subscription...');
-        supabaseClient
-            .channel('chess_game_' + Date.now()) // Unique name to force fresh connection
-            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'chess_state', filter: `id=eq.${GAME_ID}` }, payload => {
-                console.log('Realtime update received:', payload);
-                updateGameState(payload.new);
-            })
-            .subscribe((status) => {
-                console.log('Subscription status:', status);
-            });
-    } catch (error) {
-        console.error('Erreur canal temps réel:', error);
+    // Prevent duplicate subscriptions
+    if (globalRealtimeChannel) {
+        supabaseClient.removeChannel(globalRealtimeChannel);
     }
+
+    globalRealtimeChannel = supabaseClient.channel('global_notifications_' + Date.now())
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'chess_state', filter: `id=eq.${GAME_ID}` }, payload => {
+            const state = payload.new;
+
+            // 1. Is it a new game being created right now?
+            // A fresh game usually has no PGN and is initiated by the opponent
+            const isNewGame = (!state.pgn || state.pgn.trim() === '') &&
+                state.status !== 'deleted' &&
+                state.status !== 'resigned' &&
+                state.status !== 'draw';
+
+            // 2. Show invite toast lorsque l'on est sur le menu et qu'une nouvelle partie Duo est créée par l'autre
+            const isOnMenu = mainMenuEl && !mainMenuEl.classList.contains('hidden');
+            if (isNewGame && !duoInitializing && isOnMenu) {
+                showToastInvite();
+            }
+
+            // 3. Always refresh the active games list on the main menu dynamically
+            if (!mainMenuEl.classList.contains('hidden')) {
+                // Throttle slightly to ensure local storage sync finishes if they were looking at it
+                setTimeout(checkSavedGames, 100);
+            }
+
+            // 4. If we are IN the game screen actively playing this duo game, update the board
+            if (!gameScreen.classList.contains('hidden') && gameMode === 'duo') {
+                updateGameState(state);
+            }
+        })
+        .subscribe();
+}
+
+let toastTimeout = null;
+function showToast({ title, message, showJoin = false } = {}) {
+    const toast = document.getElementById('toast-container');
+    const joinBtn = document.getElementById('toast-join-btn');
+    const closeBtn = document.getElementById('toast-close-btn');
+    const titleEl = document.getElementById('toast-title');
+    const messageEl = document.getElementById('toast-message');
+
+    if (!toast) return;
+
+    // Play sound if available for notification
+    playSound('move');
+
+    if (titleEl && typeof title === 'string') titleEl.textContent = title;
+    if (messageEl && typeof message === 'string') messageEl.textContent = message;
+
+    if (joinBtn) {
+        joinBtn.classList.toggle('hidden', !showJoin);
+    }
+
+    toast.classList.remove('hidden');
+
+    // Setup button listeners
+    if (joinBtn) {
+        joinBtn.onclick = () => {
+            toast.classList.add('hidden');
+            if (toastTimeout) clearTimeout(toastTimeout);
+            // Automatically close settings/other modals if open
+            closeModal('settings-modal');
+            closeModal('resume-duo-modal');
+
+            // Use standard resume behavior to jump in
+            resumeGame('duo');
+        };
+    }
+
+    if (closeBtn) closeBtn.onclick = () => {
+        toast.classList.add('hidden');
+        if (toastTimeout) clearTimeout(toastTimeout);
+    };
+
+    // Auto-hide after 10 seconds
+    if (toastTimeout) clearTimeout(toastTimeout);
+    toastTimeout = setTimeout(() => {
+        toast.classList.add('hidden');
+    }, 10000);
+}
+
+function showToastInvite() {
+    const opponentName = myName === 'Benji' ? 'Sanaa' : 'Benji';
+    showToast({
+        title: 'Nouvelle Partie Duo !',
+        message: `${opponentName} vient de créer une partie.`,
+        showJoin: true
+    });
+}
+
+function setupRealtimeSubscription() {
+    // This function is now mostly obsolete because setupGlobalRealtime handles 'chess_state' 
+    // globally directly from login, but we keep it empty or remove references to avoid double events.
+    // Kept here for compatibility if called by initGame().
 }
 
 let presenceChannel = null;
@@ -1075,9 +1183,11 @@ async function updateGameState(data = {}) {
     // Clear victory modal anti-spam flag if a new game is detected
     if (!newFen && !newPgn) {
         sessionStorage.removeItem('gameOverShown');
+        sessionStorage.removeItem('duoDeletedHandled');
     } else if (newFen && newFen.startsWith('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq')) {
         if (!newPgn || newPgn.trim() === '') {
             sessionStorage.removeItem('gameOverShown');
+            sessionStorage.removeItem('duoDeletedHandled');
         }
     }
 
@@ -1102,14 +1212,33 @@ async function updateGameState(data = {}) {
 
     // Draw offer
     if (data.draw_offer && data.draw_offer !== myName && !data.draw_rejected) {
+        const opponentName = myName === 'Benji' ? 'Sanaa' : 'Benji';
+        const offerMsgEl = document.getElementById('draw-offer-message');
+        if (offerMsgEl) offerMsgEl.textContent = `${opponentName} propose un match nul. Accepter ?`;
         document.getElementById('draw-offer-modal').classList.remove('hidden');
     } else {
         document.getElementById('draw-offer-modal').classList.add('hidden');
     }
 
-    // Ignore 'deleted' status — game was removed, don't trigger game-over
+    // 'deleted' status — game was removed
     if (data.status === 'deleted') {
-        console.log('Game was deleted, ignoring update');
+        // If someone is still on the duo game screen, bring them back to menu + notify
+        const alreadyHandled = sessionStorage.getItem('duoDeletedHandled') === 'true';
+        if (!alreadyHandled && gameMode === 'duo' && !gameScreen.classList.contains('hidden')) {
+            sessionStorage.setItem('duoDeletedHandled', 'true');
+            // Close modals that could be open
+            closeModal('settings-modal');
+            closeModal('resume-duo-modal');
+            closeModal('draw-offer-modal');
+            closeModal('resign-modal');
+            // Return to menu without sending the "left game" system notice
+            returnToMenu({ suppressLeaveNotice: true });
+            showToast({
+                title: 'Partie supprimée',
+                message: 'Cette partie a été supprimée.',
+                showJoin: false
+            });
+        }
         return;
     }
 
@@ -1119,7 +1248,7 @@ async function updateGameState(data = {}) {
         // If resigned_by is whitePlayer, black wins, etc.
         const isWhiteWhoResigned = (data.resigned_by === data.white_player);
         const winner = isWhiteWhoResigned ? 'Noirs' : 'Blancs';
-        showGameOver(winner);
+        showGameOver(winner, { reason: 'resign', resignedBy: data.resigned_by });
         return;
     }
     if (data.status === 'draw') {
@@ -2104,7 +2233,7 @@ const LOSE_MESSAGES = [
     "Mince alors... Bisous pour soigner ça ? 😿"
 ];
 
-function showGameOver(winner) {
+function showGameOver(winner, context = {}) {
     if (sessionStorage.getItem('gameOverShown') === 'true') return;
     sessionStorage.setItem('gameOverShown', 'true');
 
@@ -2117,12 +2246,23 @@ function showGameOver(winner) {
         gameOverMessage.textContent = "On est trop connectés, impossible de se départager ! 🤝";
     } else {
         const iWon = (winner === 'Blancs' && myColor === 'w') || (winner === 'Noirs' && myColor === 'b');
-        gameOverTitle.textContent = iWon ? "Victoire ! 🎉" : "Défaite...";
+        const opponentName = myName === 'Benji' ? 'Sanaa' : 'Benji';
 
-        const messages = iWon ? WIN_MESSAGES : LOSE_MESSAGES;
-        const randomMsg = messages[Math.floor(Math.random() * messages.length)];
+        if (context && context.reason === 'resign') {
+            gameOverTitle.textContent = iWon ? 'Victoire par démission' : 'Défaite par démission';
+            if (iWon) {
+                gameOverMessage.textContent = `${opponentName} a abandonné la partie.`;
+            } else {
+                gameOverMessage.textContent = `Tu as abandonné la partie.`;
+            }
+        } else {
+            gameOverTitle.textContent = iWon ? "Victoire ! 🎉" : "Défaite...";
 
-        gameOverMessage.textContent = randomMsg;
+            const messages = iWon ? WIN_MESSAGES : LOSE_MESSAGES;
+            const randomMsg = messages[Math.floor(Math.random() * messages.length)];
+
+            gameOverMessage.textContent = randomMsg;
+        }
 
         if (iWon) {
             triggerConfetti();
@@ -2333,7 +2473,7 @@ async function confirmResign() {
     if (gameMode === 'solo') {
         const winner = myColor === 'w' ? 'Noirs' : 'Blancs';
         game.reset({ layout: ' unicode' });
-        showGameOver(winner);
+        showGameOver(winner, { reason: 'resign', resignedBy: myName });
         clearSoloState();
         return;
     }
@@ -2350,7 +2490,7 @@ async function confirmResign() {
             console.error('Erreur abandon:', e);
         }
     }
-    showGameOver(winner);
+    showGameOver(winner, { reason: 'resign', resignedBy: myName });
 }
 
 function updateHistoryUI() {
@@ -2610,15 +2750,20 @@ function displayMessage(msg, isHistory = false) {
     if (emptyState) emptyState.remove();
 
     const isMe = msg.sender === myName;
+    const isSystem = msg.sender === 'Système';
     const msgText = msg.message ? msg.message.trim() : '';
     const emojiOnly = isOnlyEmojis(msgText);
 
-    if (!isHistory && emojiOnly) {
+    if (!isHistory && emojiOnly && !isSystem) {
         showReaction(msg.sender, msgText);
     }
 
     const div = document.createElement('div');
-    div.className = `message ${isMe ? 'me' : 'opponent'}${emojiOnly ? ' emoji-only' : ''}`;
+    if (isSystem) {
+        div.className = 'message system';
+    } else {
+        div.className = `message ${isMe ? 'me' : 'opponent'}${emojiOnly ? ' emoji-only' : ''}`;
+    }
     div.dataset.id = msg.id;
 
     const date = new Date(msg.created_at);
@@ -3314,12 +3459,26 @@ function transitionGameToMenu() {
 }
 
 // --- Return to Menu (from game screen) ---
-function returnToMenu() {
+function returnToMenu(options = {}) {
     // Save current game state before leaving
     saveGameState();
 
     // Close any open dropdowns/modals
     settingsDropdown.classList.remove('active');
+
+    // Duo illimité: avertir si quelqu'un quitte la partie
+    if (!options.suppressLeaveNotice &&
+        gameMode === 'duo' &&
+        timeControl === 0 &&
+        !game.game_over() &&
+        supabaseClient) {
+        const now = Date.now();
+        if (now - lastSystemNoticeAt > 20000) {
+            lastSystemNoticeAt = now;
+            // Fire-and-forget
+            sendSystemChatMessage(`${myName} a quitté la partie.`);
+        }
+    }
 
     transitionGameToMenu();
 }
@@ -3419,9 +3578,11 @@ async function checkSavedGames() {
                     } catch (e) { /* ignore */ }
                 }
 
-                if (moveCount > 0) {
+                if (moveCount > 0 || (data.status !== 'deleted' && data.status !== 'resigned' && data.status !== 'draw')) {
                     const tempGame2 = new Chess();
-                    tempGame2.load_pgn(data.pgn);
+                    if (data.pgn && data.pgn.trim() !== '') {
+                        tempGame2.load_pgn(data.pgn);
+                    }
                     saves.duo = {
                         gameMode: 'duo',
                         moveCount: moveCount,
@@ -3443,8 +3604,8 @@ async function checkSavedGames() {
         return;
     }
 
-    // Filter out saves with no moves (fresh games)
-    const validSaves = keys.filter(k => saves[k] && saves[k].moveCount > 0);
+    // Filter out saves with no moves (fresh games), EXCEPT for duo games which we want to show immediately
+    const validSaves = keys.filter(k => saves[k] && (saves[k].moveCount > 0 || k === 'duo'));
     if (validSaves.length === 0) {
         section.classList.add('hidden');
         return;
