@@ -29,6 +29,10 @@ let timeControl = 0;
 let gameMode = 'duo';
 let botDifficulty = 1;
 let isBotThinking = false; // Mutex: true while a Stockfish search is in progress
+let duoInitializing = false; // Flag to ignore stale Supabase states during new game init
+
+// Track last game params for "Rejouer" (replay with same settings)
+let lastGameParams = null;
 
 // Stockfish Web Worker (local engine)
 const stockfish = new Worker('lib/stockfish.js');
@@ -359,6 +363,11 @@ loginBtn.addEventListener('click', async () => {
         myNameEl.textContent = myName;
         opponentNameEl.textContent = myName === 'Benji' ? 'Sanaa' : 'Benji';
 
+        // Setup presence channel early so it works on the menu screen
+        if (supabaseClient) {
+            setupPresence();
+        }
+
         // Show main menu instead of game screen directly
         showMainMenu();
 
@@ -394,6 +403,11 @@ function login(name) {
     opponentNameEl.textContent = myName === 'Benji' ? 'Sanaa' : 'Benji';
 
     loginScreen.classList.add('hidden');
+
+    // Setup presence channel early so it works on the menu screen
+    if (supabaseClient) {
+        setupPresence();
+    }
 
     // Show main menu instead of game screen directly
     showMainMenu();
@@ -602,6 +616,15 @@ async function confirmNewGame() {
         botEloOverride: botEloOverride
     }));
 
+    // Save params for "Rejouer" (replay with same settings)
+    lastGameParams = {
+        mode: gameMode,
+        color: selectedColorChoice,
+        time: selectedTimeChoice,
+        botDifficulty: botDifficulty,
+        botEloOverride: botEloOverride
+    };
+
     let whitePlayerName = myName;
 
     if (gameMode === 'solo') {
@@ -636,39 +659,43 @@ async function confirmNewGame() {
     blackTimeRemaining = timeControl;
     lastMoveTimestamp = Date.now();
 
+    sessionStorage.removeItem('gameOverShown');
+
+    if (gameMode === 'duo') {
+        clearSoloState();
+        // Reset Supabase FIRST before rendering to avoid stale state triggers
+        if (supabaseClient) {
+            duoInitializing = true;
+            try {
+                await supabaseClient
+                    .from('chess_state')
+                    .update({
+                        fen: game.fen(),
+                        last_move: '',
+                        white_player: whitePlayerName,
+                        pgn: '',
+                        white_time: whiteTimeRemaining,
+                        black_time: blackTimeRemaining,
+                        last_move_ts: lastMoveTimestamp,
+                        time_control: timeControl,
+                        status: null,
+                        draw_offer: null,
+                        draw_rejected: null,
+                        resigned_by: null
+                    })
+                    .eq('id', GAME_ID);
+            } catch (error) {
+                console.error('Erreur Supabase:', error);
+            }
+            duoInitializing = false;
+        }
+    }
+
     renderBoard();
     updateStatus();
     startTimer();
     updateModeBadge();
     updateOpponentName();
-    sessionStorage.removeItem('gameOverShown');
-
-    if (gameMode === 'duo') {
-        clearSoloState();
-    }
-
-    if (gameMode === 'duo' && supabaseClient) {
-        try {
-            await supabaseClient
-                .from('chess_state')
-                .update({
-                    fen: game.fen(),
-                    last_move: '',
-                    white_player: whitePlayerName,
-                    pgn: '',
-                    white_time: whiteTimeRemaining,
-                    last_move_ts: lastMoveTimestamp,
-                    time_control: timeControl,
-                    status: null,
-                    draw_offer: null,
-                    draw_rejected: null,
-                    resigned_by: null
-                })
-                .eq('id', GAME_ID);
-        } catch (error) {
-            console.error('Erreur Supabase:', error);
-        }
-    }
 
     if (gameMode === 'solo' && game.turn() !== myColor) {
         makeBotMove();
@@ -926,10 +953,13 @@ function setupRealtimeSubscription() {
 let presenceChannel = null;
 
 function setupPresence() {
-    if (!supabaseClient || gameMode === 'solo') return;
+    if (!supabaseClient || !myName) return;
 
+    // If already connected, don't recreate
     if (presenceChannel) {
-        supabaseClient.removeChannel(presenceChannel);
+        // Already set up — just re-track
+        presenceChannel.track({ user: myName, online_at: new Date().toISOString() }).catch(() => { });
+        return;
     }
 
     presenceChannel = supabaseClient.channel('chess_presence', {
@@ -940,6 +970,7 @@ function setupPresence() {
         .on('presence', { event: 'sync' }, () => {
             const state = presenceChannel.presenceState();
             updatePresenceUI(state);
+            updateMenuPresenceUI(state);
         })
         .subscribe(async (status) => {
             if (status === 'SUBSCRIBED') {
@@ -970,7 +1001,32 @@ function updatePresenceUI(state) {
     }
 }
 
+function updateMenuPresenceUI(state) {
+    if (!myName) return;
+    const opponentName = myName === 'Benji' ? 'Sanaa' : 'Benji';
+    const isOnline = !!state[opponentName] && state[opponentName].length > 0;
+
+    const dot = document.getElementById('menu-duo-presence-dot');
+    const text = document.getElementById('menu-duo-presence-text');
+
+    if (dot) {
+        dot.classList.toggle('offline', !isOnline);
+        dot.classList.toggle('online', isOnline);
+    }
+    if (text) {
+        text.textContent = isOnline
+            ? `${opponentName} en ligne`
+            : `${opponentName} hors ligne`;
+    }
+}
+
 async function updateGameState(data = {}) {
+    // Skip stale updates while a new duo game is being initialized
+    if (duoInitializing) {
+        console.log('Ignoring Supabase update during duo initialization');
+        return;
+    }
+
     const newFen = data.fen;
     const newPgn = data.pgn;
     const whitePlayer = data.white_player;
@@ -1009,6 +1065,12 @@ async function updateGameState(data = {}) {
         document.getElementById('draw-offer-modal').classList.remove('hidden');
     } else {
         document.getElementById('draw-offer-modal').classList.add('hidden');
+    }
+
+    // Ignore 'deleted' status — game was removed, don't trigger game-over
+    if (data.status === 'deleted') {
+        console.log('Game was deleted, ignoring update');
+        return;
     }
 
     // Resign and Draw status
@@ -2030,6 +2092,123 @@ function showGameOver(winner) {
     }
 }
 
+/**
+ * Replay the last game with the same parameters (mode, color, time, bot settings).
+ * Called from the "Rejouer" button in the game-over modal.
+ */
+async function replayGame() {
+    closeModal('game-over-modal');
+    sessionStorage.removeItem('gameOverShown');
+
+    if (!lastGameParams) {
+        // Fallback: return to menu if no params saved
+        returnToMenu();
+        return;
+    }
+
+    const params = lastGameParams;
+
+    if (params.mode === 'solo') {
+        // Solo replay
+        gameMode = 'solo';
+        botDifficulty = params.botDifficulty || 1;
+        botEloOverride = params.botEloOverride || null;
+
+        let whitePlayerName = myName;
+        if (params.color === 'black') {
+            whitePlayerName = 'Bot';
+        } else if (params.color === 'random') {
+            whitePlayerName = Math.random() < 0.5 ? myName : 'Bot';
+        }
+
+        game.reset();
+        lastMove = null;
+        viewIndex = null;
+        isBotThinking = false;
+
+        myColor = (whitePlayerName === myName) ? 'w' : 'b';
+        boardFlipped = (myColor === 'b');
+
+        timeControl = (params.time || 0) * 60 * 1000;
+        whiteTimeRemaining = timeControl;
+        blackTimeRemaining = timeControl;
+        lastMoveTimestamp = Date.now();
+
+        renderBoard();
+        updateStatus();
+        startTimer();
+        updateModeBadge();
+        updateOpponentName();
+
+        if (game.turn() !== myColor) {
+            makeBotMove();
+        }
+    } else {
+        // Duo replay — reset Supabase and start fresh
+        gameMode = 'duo';
+
+        let whitePlayerName = myName;
+        if (params.color === 'black') {
+            whitePlayerName = myName === 'Benji' ? 'Sanaa' : 'Benji';
+        } else if (params.color === 'random') {
+            whitePlayerName = Math.random() < 0.5 ? 'Benji' : 'Sanaa';
+        }
+
+        game.reset();
+        lastMove = null;
+        viewIndex = null;
+        isBotThinking = false;
+
+        myColor = (whitePlayerName === myName) ? 'w' : 'b';
+        boardFlipped = (myColor === 'b');
+
+        timeControl = (params.time || 5) * 60 * 1000;
+        whiteTimeRemaining = timeControl;
+        blackTimeRemaining = timeControl;
+        lastMoveTimestamp = Date.now();
+
+        // Reset Supabase first
+        if (supabaseClient) {
+            duoInitializing = true;
+            try {
+                await supabaseClient
+                    .from('chess_state')
+                    .update({
+                        fen: game.fen(),
+                        last_move: '',
+                        white_player: whitePlayerName,
+                        pgn: '',
+                        white_time: whiteTimeRemaining,
+                        black_time: blackTimeRemaining,
+                        last_move_ts: lastMoveTimestamp,
+                        time_control: timeControl,
+                        status: null,
+                        draw_offer: null,
+                        draw_rejected: null,
+                        resigned_by: null
+                    })
+                    .eq('id', GAME_ID);
+            } catch (error) {
+                console.error('Erreur Supabase reset:', error);
+            }
+            duoInitializing = false;
+        }
+
+        renderBoard();
+        updateStatus();
+        startTimer();
+        updateModeBadge();
+        updateOpponentName();
+
+        // Re-init Supabase subscriptions
+        if (supabaseClient) {
+            setupRealtimeSubscription();
+            setupChatSubscription();
+            setupPresence();
+        }
+    }
+}
+
 function triggerConfetti() {
     var duration = 3 * 1000;
     var animationEnd = Date.now() + duration;
@@ -2701,6 +2880,7 @@ let menuSoloElo = 400;
 let menuSoloDiff = 1;
 let menuSoloColor = null;
 let menuDuoColor = null;
+let menuDuoTime = 5; // Default 5 minutes for duo
 
 // --- Show / Hide Main Menu ---
 
@@ -2717,10 +2897,15 @@ function showMainMenu() {
     duoCard.classList.remove('expanded');
     menuSoloColor = null;
     menuDuoColor = null;
+    menuDuoTime = 5;
 
     // Reset color button selections
     document.querySelectorAll('#menu-solo-settings .menu-color-btn').forEach(b => b.classList.remove('selected'));
     document.querySelectorAll('#menu-duo-settings .menu-color-btn').forEach(b => b.classList.remove('selected'));
+    // Reset time button selections (default to 5 min)
+    document.querySelectorAll('#menu-duo-settings .menu-time-btn').forEach(b => {
+        b.classList.toggle('selected', b.dataset.time === '5');
+    });
     soloLaunchBtn.disabled = true;
     duoLaunchBtn.disabled = true;
 
@@ -2852,6 +3037,16 @@ function setupMenuListeners() {
         });
     });
 
+    // Time Selection (Duo)
+    document.querySelectorAll('#menu-duo-settings .menu-time-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            menuDuoTime = parseInt(btn.dataset.time);
+            document.querySelectorAll('#menu-duo-settings .menu-time-btn').forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+        });
+    });
+
     // Launch Solo Game
     soloLaunchBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -2862,6 +3057,15 @@ function setupMenuListeners() {
         botDifficulty = menuSoloDiff;
         selectedColorChoice = menuSoloColor;
         selectedTimeChoice = 0;
+
+        // Save params for replay
+        lastGameParams = {
+            mode: 'solo',
+            color: menuSoloColor,
+            time: 0,
+            botDifficulty: menuSoloDiff,
+            botEloOverride: menuSoloElo
+        };
 
         localStorage.setItem('chess_new_game_settings', JSON.stringify({
             mode: 'solo',
@@ -2906,15 +3110,29 @@ function setupMenuListeners() {
         });
     });
 
-    // Launch Duo Game
-    duoLaunchBtn.addEventListener('click', (e) => {
+    // Launch Duo Game — check Supabase for existing game instead of localStorage
+    duoLaunchBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
         if (!menuDuoColor) return;
 
-        const saves = getSavedGames();
-        if (saves && saves.duo) {
-            document.getElementById('resume-duo-modal').classList.remove('hidden');
-            return;
+        // Check Supabase for an active duo game
+        if (supabaseClient) {
+            try {
+                const { data } = await supabaseClient
+                    .from('chess_state')
+                    .select('fen, pgn, status')
+                    .eq('id', GAME_ID)
+                    .single();
+
+                if (data && data.pgn && data.pgn.trim() !== '' &&
+                    data.status !== 'deleted' && data.status !== 'resigned' && data.status !== 'draw') {
+                    // There's an active game on Supabase
+                    document.getElementById('resume-duo-modal').classList.remove('hidden');
+                    return;
+                }
+            } catch (e) {
+                // No existing game or error — proceed to new game
+            }
         }
 
         startNewDuoGame();
@@ -2932,16 +3150,23 @@ function resumeExistingDuoGame() {
     resumeGame('duo');
 }
 
-function startNewDuoGame() {
+async function startNewDuoGame() {
 
     gameMode = 'duo';
     selectedColorChoice = menuDuoColor;
-    selectedTimeChoice = 5;
+    selectedTimeChoice = menuDuoTime;
+
+    // Save params for replay
+    lastGameParams = {
+        mode: 'duo',
+        color: menuDuoColor,
+        time: menuDuoTime
+    };
 
     localStorage.setItem('chess_new_game_settings', JSON.stringify({
         mode: 'duo',
         color: menuDuoColor,
-        time: 5,
+        time: menuDuoTime,
         botDifficulty: botDifficulty,
         botEloOverride: botEloOverride
     }));
@@ -2957,6 +3182,7 @@ function startNewDuoGame() {
     lastMove = null;
     viewIndex = null;
     isBotThinking = false;
+    sessionStorage.removeItem('gameOverShown');
 
     myColor = (whitePlayerName === myName) ? 'w' : 'b';
     boardFlipped = (myColor === 'b');
@@ -2968,14 +3194,39 @@ function startNewDuoGame() {
 
     clearSoloState();
 
+    // Reset Supabase FIRST to avoid stale state triggers
+    if (supabaseClient) {
+        duoInitializing = true;
+        try {
+            await supabaseClient
+                .from('chess_state')
+                .update({
+                    fen: game.fen(),
+                    last_move: '',
+                    white_player: whitePlayerName,
+                    pgn: '',
+                    white_time: whiteTimeRemaining,
+                    black_time: blackTimeRemaining,
+                    last_move_ts: lastMoveTimestamp,
+                    time_control: timeControl,
+                    status: null,
+                    draw_offer: null,
+                    draw_rejected: null,
+                    resigned_by: null
+                })
+                .eq('id', GAME_ID);
+        } catch (error) {
+            console.error('Erreur Supabase reset:', error);
+        }
+        duoInitializing = false;
+    }
+
     transitionMenuToGame(() => {
         renderBoard();
         updateStatus();
         startTimer();
         updateModeBadge();
         updateOpponentName();
-        sessionStorage.removeItem('gameOverShown');
-        saveGameState();
 
         if (supabaseClient) {
             initGame();
@@ -3038,6 +3289,8 @@ function returnToMenu() {
 function saveGameState() {
     // Don't save if game is over
     if (game.game_over()) return;
+    // Duo state lives on Supabase only — never write to localStorage
+    if (gameMode === 'duo') return;
 
     const saves = getSavedGames();
     const history = game.history();
@@ -3070,13 +3323,23 @@ function saveGameState() {
 function getSavedGames() {
     try {
         const raw = localStorage.getItem('chess_game_saves');
-        return raw ? JSON.parse(raw) : {};
+        const saves = raw ? JSON.parse(raw) : {};
+        // Remove any stale duo saves from localStorage (duo is Supabase-only now)
+        if (saves.duo) {
+            delete saves.duo;
+            localStorage.setItem('chess_game_saves', JSON.stringify(saves));
+        }
+        return saves;
     } catch (e) {
         return {};
     }
 }
 
 function clearGameSave(mode) {
+    if (mode === 'duo') {
+        // Duo cleanup is handled via Supabase only (deleteDuoGameFromSupabase)
+        return;
+    }
     const saves = getSavedGames();
     delete saves[mode];
     localStorage.setItem('chess_game_saves', JSON.stringify(saves));
@@ -3088,13 +3351,51 @@ function clearGameSave(mode) {
 
 // --- Saved Games Detection & Rendering ---
 
-function checkSavedGames() {
-    const saves = getSavedGames();
+async function checkSavedGames() {
+    const saves = getSavedGames(); // Only has solo saves now
     const section = document.getElementById('saved-games-section');
     const list = document.getElementById('saved-games-list');
 
     // Also check for legacy solo state
     migrateLegacySoloSave(saves);
+
+    // Check Supabase for active duo game
+    if (supabaseClient) {
+        try {
+            const { data } = await supabaseClient
+                .from('chess_state')
+                .select('*')
+                .eq('id', GAME_ID)
+                .single();
+
+            if (data && data.fen && data.status !== 'deleted' && data.status !== 'resigned' && data.status !== 'draw') {
+                // Check if the game has moves (not a fresh board)
+                let moveCount = 0;
+                if (data.pgn && data.pgn.trim() !== '') {
+                    try {
+                        const tempGame = new Chess();
+                        tempGame.load_pgn(data.pgn);
+                        moveCount = tempGame.history().length;
+                    } catch (e) { /* ignore */ }
+                }
+
+                if (moveCount > 0) {
+                    const tempGame2 = new Chess();
+                    tempGame2.load_pgn(data.pgn);
+                    saves.duo = {
+                        gameMode: 'duo',
+                        moveCount: moveCount,
+                        turn: tempGame2.turn(),
+                        timeControl: data.time_control || 0,
+                        timestamp: data.updated_at || new Date().toISOString(),
+                        fromSupabase: true
+                    };
+                }
+            }
+        } catch (e) {
+            console.warn('Could not check Supabase for duo game:', e);
+        }
+    }
 
     const keys = Object.keys(saves);
     if (keys.length === 0) {
@@ -3171,6 +3472,13 @@ function createSavedGameCard(key, save, index) {
     const turnDotClass = save.turn === 'w' ? 'white' : 'black';
     const eloText = isSolo && save.botEloOverride ? save.botEloOverride + ' ELO' : '';
 
+    // Format time control (only for duo — solo always uses infinite time)
+    let timeText = '';
+    if (!isSolo && save.timeControl !== undefined && save.timeControl !== null) {
+        const minutes = save.timeControl / 60000;
+        timeText = minutes > 0 ? `${minutes} min` : '∞';
+    }
+
     // Format date/time
     let dateText = '';
     if (save.timestamp) {
@@ -3187,6 +3495,7 @@ function createSavedGameCard(key, save, index) {
             <div class="saved-game-mode">
                 <span class="mode-tag ${isSolo ? 'solo' : 'duo'}">${isSolo ? 'SOLO' : 'DUO'}</span>
                 ${eloText ? `<span class="elo-tag">${eloText}</span>` : ''}
+                ${timeText ? `<span class="time-tag">${timeText}</span>` : ''}
             </div>
             <div class="saved-game-turn">
                 <span class="turn-dot ${turnDotClass}"></span>
@@ -3290,6 +3599,27 @@ function deleteSave(key) {
 // --- Resume a Saved Game ---
 
 function resumeGame(key) {
+    if (key === 'duo') {
+        // Duo state lives on Supabase — just transition and let initGame() fetch it
+        gameMode = 'duo';
+        isBotThinking = false;
+        lastMove = null;
+        viewIndex = null;
+        sessionStorage.removeItem('gameOverShown');
+
+        // Save params for replay
+        lastGameParams = { mode: 'duo', color: 'white', time: 5 };
+
+        transitionMenuToGame(() => {
+            updateModeBadge();
+            updateOpponentName();
+            if (supabaseClient) {
+                initGame(); // Fetches full state from Supabase
+            }
+        });
+        return;
+    }
+
     const saves = getSavedGames();
     const save = saves[key];
     if (!save) return;
@@ -3303,6 +3633,15 @@ function resumeGame(key) {
     whiteTimeRemaining = save.whiteTimeRemaining || 0;
     blackTimeRemaining = save.blackTimeRemaining || 0;
     lastMoveTimestamp = save.lastMoveTimestamp || Date.now();
+
+    // Save params for replay
+    lastGameParams = {
+        mode: gameMode,
+        color: myColor === 'w' ? 'white' : 'black',
+        time: timeControl > 0 ? timeControl / 60000 : 0,
+        botDifficulty: botDifficulty,
+        botEloOverride: botEloOverride
+    };
 
     game.reset();
     if (save.pgn && save.pgn.trim()) {
@@ -3335,11 +3674,6 @@ function resumeGame(key) {
         // If solo and bot's turn, trigger bot move
         if (gameMode === 'solo' && game.turn() !== myColor && !game.game_over()) {
             makeBotMove();
-        }
-
-        // If duo, init Supabase
-        if (gameMode === 'duo' && supabaseClient) {
-            initGame();
         }
     });
 }

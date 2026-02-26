@@ -734,6 +734,29 @@ button#login-btn:hover {
     }
 }
 
+/* Menu Presence Dot (Duo card in main menu) */
+.menu-presence-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+    transition: background-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.menu-presence-dot.online {
+    background-color: #22c55e;
+    box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
+    animation: pulse-online 2s infinite;
+}
+
+.menu-presence-dot.offline {
+    background-color: rgba(255, 255, 255, 0.25);
+    box-shadow: none;
+    animation: none;
+}
+
 .dropdown-status {
     cursor: default;
     font-size: 13px;
@@ -1902,7 +1925,7 @@ footer {
             transparent 0% 50%);
     background-size: 60px 60px;
     transform: rotate(45deg);
-    animation: menuPatternDrift 20s linear infinite;
+    animation: menuPatternDrift 7s linear infinite;
 }
 
 .menu-bg-gradient {
@@ -2092,6 +2115,12 @@ footer {
 }
 
 .saved-game-mode .elo-tag {
+    font-size: 11px;
+    opacity: 0.5;
+    font-weight: 500;
+}
+
+.saved-game-mode .time-tag {
     font-size: 11px;
     opacity: 0.5;
     font-weight: 500;
@@ -2334,11 +2363,12 @@ footer {
     margin-bottom: 10px;
 }
 
-/* --- Elo Presets --- */
+/* --- Elo Presets (matches .preset-options / .preset-btn in modal) --- */
 .menu-elo-presets {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: 1fr 1fr;
     gap: 8px;
+    width: 100%;
     margin-bottom: 12px;
 }
 
@@ -2347,35 +2377,36 @@ footer {
     flex-direction: column;
     align-items: center;
     gap: 2px;
-    padding: 10px 6px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 12px;
-    background: rgba(255, 255, 255, 0.04);
-    color: var(--text-color);
-    font-family: 'Fredoka', sans-serif;
+    padding: 10px 8px;
+    border-radius: 10px;
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.6);
     cursor: pointer;
     transition: all 0.2s ease;
+    font-family: 'Fredoka', sans-serif;
 }
 
 .menu-elo-btn:hover {
+    border-color: rgba(255, 255, 255, 0.2);
     background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.15);
 }
 
 .menu-elo-btn.selected {
-    background: rgba(136, 176, 75, 0.15);
     border-color: var(--accent);
-    color: var(--accent);
+    background: rgba(136, 176, 75, 0.15);
+    color: white;
 }
 
 .menu-elo-btn .elo-name {
     font-size: 12px;
-    font-weight: 600;
+    font-weight: 700;
 }
 
 .menu-elo-btn .elo-val {
-    font-size: 11px;
+    font-size: 10px;
     opacity: 0.5;
+    font-weight: 600;
 }
 
 .menu-elo-btn.selected .elo-val {
@@ -2436,50 +2467,55 @@ footer {
     white-space: nowrap;
 }
 
-/* --- Color Selection --- */
+/* --- Color Selection (Menu — matches .color-choices / .color-option in modal) --- */
 .menu-color-select {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
+    display: flex;
+    justify-content: center;
+    gap: 15px;
 }
 
 .menu-color-btn {
+    width: 70px;
+    height: 70px;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 6px;
-    padding: 12px 8px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 12px;
-    background: rgba(255, 255, 255, 0.04);
+    justify-content: center;
+    gap: 4px;
+    padding: 0;
+    border: 3px solid transparent;
+    border-radius: 15px;
+    background: rgba(0, 0, 0, 0.1);
     color: var(--text-color);
     font-family: 'Fredoka', sans-serif;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    position: relative;
+    overflow: hidden;
 }
 
 .menu-color-btn:hover {
     background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.15);
 }
 
 .menu-color-btn.selected {
-    background: rgba(136, 176, 75, 0.15);
     border-color: var(--accent);
+    background: rgba(136, 176, 75, 0.2);
+    transform: scale(1.1);
 }
 
 .menu-color-btn img {
-    width: 32px;
-    height: 32px;
+    width: 36px;
+    height: 36px;
     object-fit: contain;
     filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
 }
 
 .menu-random-icon {
-    width: 32px;
-    height: 32px;
+    width: 36px;
+    height: 36px;
     position: relative;
     overflow: hidden;
 }
@@ -2488,8 +2524,8 @@ footer {
     position: absolute;
     left: 0;
     top: 0;
-    width: 32px;
-    height: 32px;
+    width: 36px;
+    height: 36px;
     object-fit: contain;
     clip-path: inset(0 50% 0 0);
     filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
@@ -2499,11 +2535,48 @@ footer {
     position: absolute;
     left: 0;
     top: 0;
-    width: 32px;
-    height: 32px;
+    width: 36px;
+    height: 36px;
     object-fit: contain;
     clip-path: inset(0 0 0 50%);
     filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+}
+
+/* --- Time Selection (Menu — matches .time-choices / .time-btn in modal) --- */
+.menu-time-select {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: nowrap;
+}
+
+.menu-time-btn {
+    padding: 10px 0;
+    border-radius: 15px;
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    background: rgba(0, 0, 0, 0.2);
+    color: var(--text-color);
+    cursor: pointer;
+    font-size: 14px;
+    flex: 1;
+    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: none;
+    font-family: 'Fredoka', sans-serif;
+    transition: all 0.2s ease;
+}
+
+.menu-time-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.menu-time-btn.selected {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+    font-weight: 600;
 }
 
 /* --- Launch Button --- */
@@ -2727,7 +2800,8 @@ footer {
 }
 
 [data-theme="light"] .menu-elo-btn,
-[data-theme="light"] .menu-color-btn {
+[data-theme="light"] .menu-color-btn,
+[data-theme="light"] .menu-time-btn {
     background: rgba(0, 0, 0, 0.03);
     border-color: rgba(0, 0, 0, 0.08);
 }
