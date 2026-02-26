@@ -3121,6 +3121,7 @@ footer {
     display: flex;
     align-items: center;
     gap: 12px;
+    flex: 1;
 }
 
 .toast-icon {

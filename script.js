@@ -1016,8 +1016,14 @@ function setupGlobalRealtime() {
                 state.status !== 'draw';
 
             // 2. Show invite toast lorsque l'on est sur le menu et qu'une nouvelle partie Duo est créée par l'autre
+            // On vérifie que c'est bien l'autre joueur qui a créé la partie (ex: last_move n'est pas nous ou c'est pas à nous de jouer si on est noir et que c'est le tour des blancs au début)
             const isOnMenu = mainMenuEl && !mainMenuEl.classList.contains('hidden');
-            if (isNewGame && !duoInitializing && isOnMenu) {
+
+            // Pour savoir si c'est nous qui avons créé, on peut regarder si on est l'auteur du dernier move (ou s'il n'y a pas de last_move_ts mais que c'est notre tour et on a pas bougé)
+            // Une façon plus simple: si on vient de créer la partie, on n'est probablement pas sur le menu principal, on a déjà transitionné vers l'écran de jeu.
+            // Mais pour être sûr: on ne montre le toast que si le gameMode actuel n'est pas "duo" (on ne joue pas déjà) et qu'on est au menu
+
+            if (isNewGame && !duoInitializing && isOnMenu && gameMode !== 'duo') {
                 showToastInvite();
             }
 
@@ -1568,6 +1574,7 @@ function getPieceName(type) {
 function onSquareClick(square) {
     if (viewIndex !== null) return;
     if (isBotThinking) return;
+    if (sessionStorage.getItem('gameOverShown') === 'true') return;
 
     if (game.turn() !== myColor) {
         if (gameMode === 'solo') return;
@@ -1702,6 +1709,7 @@ let pointerDragClone = null;
 function handlePointerDown(e, square) {
     if (viewIndex !== null || e.button !== 0) return;
     if (isBotThinking) return;
+    if (sessionStorage.getItem('gameOverShown') === 'true') return;
     e.preventDefault();
 
     const piece = getPredictedPieceAt(square);
@@ -1870,6 +1878,7 @@ let activeTouchPiece = null;
 function handleTouchStart(e, square) {
     if (viewIndex !== null) return;
     if (isBotThinking) return;
+    if (sessionStorage.getItem('gameOverShown') === 'true') return;
     e.preventDefault();
 
     const piece = getPredictedPieceAt(square);
@@ -2236,6 +2245,8 @@ const LOSE_MESSAGES = [
 function showGameOver(winner, context = {}) {
     if (sessionStorage.getItem('gameOverShown') === 'true') return;
     sessionStorage.setItem('gameOverShown', 'true');
+
+    clearPremove();
 
     // Clear the saved game since the game is over
     clearGameSave(gameMode);
@@ -2878,6 +2889,12 @@ document.addEventListener('touchend', (e) => {
 }, { passive: false });
 
 function handleSwipe(startX, startY, endX, endY) {
+    // Ne pas permettre le swipe dans le menu principal
+    if (!gameScreen || gameScreen.classList.contains('hidden')) return;
+
+    // Ne pas gérer le swipe si on est en train de déplacer une pièce (tactile ou souris)
+    if (activeTouchPiece || pointerDragPiece) return;
+
     const diffX = endX - startX;
     const diffY = endY - touchStartY;
 
@@ -2889,10 +2906,7 @@ function handleSwipe(startX, startY, endX, endY) {
 
             // Swipe Right (Left -> Right) -> Open Chat
             if (diffX > 0) {
-                // Only if starting from the left edge (optional, but better UX to avoid accidental swipes)
-                // But user asked "swipe right to open", so let's be generous.
-                // Check if we are not dragging a piece (handled in touchmove)
-                if (!activeTouchPiece && !sidebar.classList.contains('open')) {
+                if (!sidebar.classList.contains('open')) {
                     toggleChat();
                 }
             }
@@ -3305,15 +3319,45 @@ function setupMenuListeners() {
             try {
                 const { data } = await supabaseClient
                     .from('chess_state')
-                    .select('fen, pgn, status')
+                    .select('fen, pgn, status, time_control, white_time, black_time, last_move_ts')
                     .eq('id', GAME_ID)
                     .single();
 
                 if (data && data.pgn && data.pgn.trim() !== '' &&
                     data.status !== 'deleted' && data.status !== 'resigned' && data.status !== 'draw') {
-                    // There's an active game on Supabase
-                    document.getElementById('resume-duo-modal').classList.remove('hidden');
-                    return;
+
+                    let isGameOver = false;
+                    let currentTurn = 'w';
+                    try {
+                        const tempGame = new Chess();
+                        tempGame.load_pgn(data.pgn);
+                        currentTurn = tempGame.turn();
+                        if (tempGame.game_over()) isGameOver = true;
+                    } catch (e) { /* ignore */ }
+
+                    if (data.time_control && data.time_control > 0) {
+                        let wTime = data.white_time !== undefined && data.white_time !== null ? data.white_time : data.time_control;
+                        let bTime = data.black_time !== undefined && data.black_time !== null ? data.black_time : data.time_control;
+
+                        if (data.last_move_ts) {
+                            const elapsed = Date.now() - data.last_move_ts;
+                            if (currentTurn === 'w') {
+                                wTime -= elapsed;
+                            } else {
+                                bTime -= elapsed;
+                            }
+                        }
+
+                        if (wTime <= 0 || bTime <= 0) {
+                            isGameOver = true;
+                        }
+                    }
+
+                    if (!isGameOver) {
+                        // There's an active, non-finished game on Supabase
+                        document.getElementById('resume-duo-modal').classList.remove('hidden');
+                        return;
+                    }
                 }
             } catch (e) {
                 // No existing game or error — proceed to new game
@@ -3462,6 +3506,7 @@ function transitionGameToMenu() {
 function returnToMenu(options = {}) {
     // Save current game state before leaving
     saveGameState();
+    clearPremove();
 
     // Close any open dropdowns/modals
     settingsDropdown.classList.remove('active');
@@ -3568,17 +3613,39 @@ async function checkSavedGames() {
                 .single();
 
             if (data && data.fen && data.status !== 'deleted' && data.status !== 'resigned' && data.status !== 'draw') {
-                // Check if the game has moves (not a fresh board)
                 let moveCount = 0;
+                let isGameOver = false;
+                let currentTurn = 'w';
                 if (data.pgn && data.pgn.trim() !== '') {
                     try {
                         const tempGame = new Chess();
                         tempGame.load_pgn(data.pgn);
                         moveCount = tempGame.history().length;
+                        currentTurn = tempGame.turn();
+                        if (tempGame.game_over()) isGameOver = true;
                     } catch (e) { /* ignore */ }
                 }
 
-                if (moveCount > 0 || (data.status !== 'deleted' && data.status !== 'resigned' && data.status !== 'draw')) {
+                if (data.time_control && data.time_control > 0) {
+                    let wTime = data.white_time !== undefined && data.white_time !== null ? data.white_time : data.time_control;
+                    let bTime = data.black_time !== undefined && data.black_time !== null ? data.black_time : data.time_control;
+
+                    if (data.last_move_ts && moveCount > 0) {
+                        const elapsed = Date.now() - data.last_move_ts;
+                        if (currentTurn === 'w') {
+                            wTime -= elapsed;
+                        } else {
+                            bTime -= elapsed;
+                        }
+                    }
+
+                    if (wTime <= 0 || bTime <= 0) {
+                        isGameOver = true;
+                    }
+                }
+
+                // If game is over, we shouldn't show it in "saved games" as an active game.
+                if (!isGameOver && (moveCount > 0 || (data.status !== 'deleted' && data.status !== 'resigned' && data.status !== 'draw'))) {
                     const tempGame2 = new Chess();
                     if (data.pgn && data.pgn.trim() !== '') {
                         tempGame2.load_pgn(data.pgn);
