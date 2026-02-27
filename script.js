@@ -1879,6 +1879,7 @@ function handleTouchStart(e, square) {
     if (isBotThinking) return;
     if (sessionStorage.getItem('gameOverShown') === 'true') return;
     e.preventDefault();
+    e.stopPropagation();
 
     const piece = getPredictedPieceAt(square);
     if (!piece || piece.color !== myColor) return;
@@ -1911,6 +1912,7 @@ function handleTouchStart(e, square) {
 function handleTouchMove(e) {
     if (!activeTouchPiece) return;
     e.preventDefault();
+    e.stopPropagation();
     const touch = e.touches[0];
     moveTouchPiece(touch.clientX, touch.clientY);
 }
@@ -1925,6 +1927,7 @@ function moveTouchPiece(x, y) {
 function handleTouchEnd(e) {
     if (!activeTouchPiece) return;
     e.preventDefault();
+    e.stopPropagation();
 
     const touch = e.changedTouches[0];
 
