@@ -467,7 +467,7 @@
                 <div id="opponent-reaction" class="reaction-emoji"></div>
             </div>
 
-            <!-- Settings Button (Moved inside Header) -->
+            <!-- Settings Button -->
             <div class="settings-fixed-container" style="display: flex; gap: 10px;">
                 <button class="settings-btn" onclick="toggleChat()" style="position: relative;">
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -481,40 +481,39 @@
                 </button>
                 <button class="settings-btn" onclick="toggleDropdown()">⋮</button>
                 <div id="settings-dropdown" class="dropdown">
-                    <!-- Menu Return -->
-                    <div class="dropdown-item" onclick="settingsDropdown.classList.remove('active'); returnToMenu();">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
-                            <polyline points="9 22 9 12 15 12 15 22"></polyline>
-                        </svg>
-                        Menu principal
+                    <!-- Quick Actions Row -->
+                    <div style="display: flex; justify-content: space-evenly; padding: 5px 5px;">
+                        <div class="dropdown-action-btn"
+                            onclick="settingsDropdown.classList.remove('active'); returnToMenu();"
+                            title="Menu principal">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin: 0;">
+                                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                                <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                            </svg>
+                        </div>
+                        <div class="dropdown-action-btn" onclick="openHistoryModal()" title="Historique">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin: 0;">
+                                <path d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" />
+                            </svg>
+                        </div>
+                        <div class="dropdown-action-btn" onclick="openSettings()" title="Thèmes">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin: 0;">
+                                <circle cx="13.5" cy="6.5" r="2.5" />
+                                <circle cx="17.5" cy="10.5" r="2.5" />
+                                <circle cx="8.5" cy="7.5" r="2.5" />
+                                <circle cx="6.5" cy="12.5" r="2.5" />
+                                <path
+                                    d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z" />
+                            </svg>
+                        </div>
                     </div>
                     <div class="dropdown-divider"></div>
                     <div class="dropdown-item dropdown-status" id="presence-status">
                         <span class="online-dot offline"></span>
                         <span id="presence-text">Hors ligne</span>
-                    </div>
-                    <div class="dropdown-divider"></div>
-                    <div class="dropdown-item" onclick="openSettings()">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <circle cx="13.5" cy="6.5" r="2.5" />
-                            <circle cx="17.5" cy="10.5" r="2.5" />
-                            <circle cx="8.5" cy="7.5" r="2.5" />
-                            <circle cx="6.5" cy="12.5" r="2.5" />
-                            <path
-                                d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z" />
-                        </svg>
-                        Thèmes
-                    </div>
-                    <div class="dropdown-divider"></div>
-                    <div class="dropdown-item" onclick="openHistoryModal()">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" />
-                        </svg>
-                        Historique
                     </div>
                     <div class="dropdown-divider"></div>
                     <div class="dropdown-item duo-only-item" id="draw-offer-item" onclick="proposeDraw()"

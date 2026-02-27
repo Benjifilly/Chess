@@ -108,36 +108,53 @@ function playSound(name) {
 
 // History Navigation
 let viewIndex = null; // null = live, -1 = start, 0 = after 1st move...
+let lastAnimatedSquare = null;
+let snapDragOffset = null;
 
-function navigateHistory(direction) {
-    const history = game.history();
+async function navigateHistory(direction) {
+    const history = game.history({ verbose: true });
     if (history.length === 0) return; // Pas d'historique disponible
 
     const maxIndex = history.length - 1;
+    let oldIndex = viewIndex === null ? maxIndex : viewIndex;
+    let newIndex;
 
     // Initialize viewIndex if null (Live)
     if (viewIndex === null) {
         if (direction === -1) {
-            // Si on est en live, on veut voir le dernier coup joué (maxIndex)
-            // SAUF si on veut annuler le dernier coup, alors on veut voir l'état AVANT le dernier coup.
-            // "Undo" visuel = voir l'état précédent.
-            // État actuel (Live) = Après move[maxIndex].
-            // État précédent = Après move[maxIndex-1].
-            viewIndex = maxIndex - 1;
+            newIndex = maxIndex - 1;
         } else {
             return; // Already at end
         }
     } else {
-        viewIndex += direction;
+        newIndex = viewIndex + direction;
     }
 
     // Clamp
-    if (viewIndex < -1) viewIndex = -1; // Start position
+    if (newIndex < -1) newIndex = -1; // Start position
+    if (newIndex >= maxIndex) newIndex = null; // Back to live
 
-    // Check if back to live
-    if (viewIndex >= maxIndex) {
-        viewIndex = null; // Back to live
+    // Determine the move that is happening or being undone
+    let moveToAnimate = null;
+    let isUndo = false;
+
+    if (direction === -1 && oldIndex >= 0) {
+        moveToAnimate = history[oldIndex];
+        isUndo = true; // backward animation
+    } else if (direction === 1 && newIndex !== null && newIndex >= 0) {
+        moveToAnimate = history[newIndex];
+    } else if (direction === 1 && newIndex === null && oldIndex === maxIndex - 1) {
+        moveToAnimate = history[maxIndex];
     }
+
+    if (moveToAnimate) {
+        // Find square from which to animate based on direction
+        const fromSquare = isUndo ? moveToAnimate.to : moveToAnimate.from;
+        const toSquare = isUndo ? moveToAnimate.from : moveToAnimate.to;
+        await animateMove(fromSquare, toSquare);
+    }
+
+    viewIndex = newIndex;
 
     renderBoard();
     updateStatus();
@@ -1494,6 +1511,30 @@ function renderBoard() {
 
                 pieceDiv.style.opacity = isPremoveGhost ? '0.5' : '1';
 
+                if (snapDragOffset && snapDragOffset.square === squareName) {
+                    pieceDiv.style.transition = 'none';
+                    pieceDiv.style.transform = `translate(${snapDragOffset.dx}px, ${snapDragOffset.dy}px)`;
+                    const sd = snapDragOffset;
+                    snapDragOffset = null;
+
+                    // Force layout recalc to ensure the initial transform is applied without transition
+                    void pieceDiv.offsetHeight;
+
+                    requestAnimationFrame(() => {
+                        pieceDiv.style.transition = 'transform 0.15s cubic-bezier(0.2, 0.8, 0.2, 1)';
+                        pieceDiv.style.transform = 'translate(0px, 0px)';
+
+                        // Cleanup transition string after animation completes
+                        pieceDiv.addEventListener('transitionend', function handler() {
+                            pieceDiv.removeEventListener('transitionend', handler);
+                            pieceDiv.style.transition = '';
+                            pieceDiv.style.transform = '';
+                        }, { once: true });
+                    });
+                } else {
+                    pieceDiv.style.transform = '';
+                }
+
                 if (viewIndex === null && displayPiece.color === myColor) {
                     pieceDiv.draggable = false;
                     pieceDiv.ondragstart = (e) => e.preventDefault();
@@ -1508,8 +1549,8 @@ function renderBoard() {
                     pieceDiv.onmousedown = null;
                     pieceDiv.style.cursor = 'default';
                 }
-            } else {
-                if (pieceDiv) pieceDiv.remove();
+            } else if (pieceDiv) {
+                pieceDiv.remove();
             }
 
             // 3. Drop Zone Events (Static-ish)
@@ -1563,6 +1604,7 @@ function renderBoard() {
     }
 
     updateHistoryButtons();
+    lastAnimatedSquare = null;
 }
 
 function getPieceName(type) {
@@ -1781,7 +1823,7 @@ function onPointerDragUp(e) {
                     renderBoard();
                 }
             } else {
-                makeMove(sourceSquare, targetSquare);
+                makeMove(sourceSquare, targetSquare, e);
             }
         } else {
             selectedSquare = sourceSquare;
@@ -1960,7 +2002,8 @@ function handleTouchEnd(e) {
                     renderBoard();
                 }
             } else {
-                makeMove(sourceSquare, targetSquare);
+                const touch = e.changedTouches[0];
+                makeMove(sourceSquare, targetSquare, touch);
             }
         } else {
             selectedSquare = sourceSquare;
@@ -1990,19 +2033,27 @@ function animateMove(from, to) {
         pieceDiv.style.transform = `translate(${dx}px, ${dy}px)`;
         pieceDiv.style.zIndex = '10';
 
-        pieceDiv.addEventListener('transitionend', function handler() {
-            pieceDiv.removeEventListener('transitionend', handler);
+        const finishAnimation = () => {
             pieceDiv.style.transition = '';
             pieceDiv.style.transform = '';
             pieceDiv.style.zIndex = '';
+            lastAnimatedSquare = to;
             resolve();
+        };
+
+        pieceDiv.addEventListener('transitionend', function handler() {
+            pieceDiv.removeEventListener('transitionend', handler);
+            finishAnimation();
         });
 
-        setTimeout(resolve, 450);
+        setTimeout(() => {
+            pieceDiv.removeEventListener('transitionend', finishAnimation);
+            finishAnimation();
+        }, 450);
     });
 }
 
-async function makeMove(from, to) {
+async function makeMove(from, to, dragEvent = null) {
     const move = game.move({ from, to, promotion: 'q' }); // Promotion auto en Reine pour simplifier
 
     if (move) {
@@ -2032,7 +2083,25 @@ async function makeMove(from, to) {
         }
         lastMoveTimestamp = now;
 
-        await animateMove(from, to);
+        if (!dragEvent) {
+            await animateMove(from, to);
+        } else {
+            lastAnimatedSquare = to;
+            const toDiv = document.querySelector(`.square[data-square="${to}"]`);
+            if (toDiv) {
+                const rect = toDiv.getBoundingClientRect();
+                const centerX = rect.left + rect.width / 2;
+                const centerY = rect.top + rect.height / 2;
+                let dropX = dragEvent.clientX;
+                let dropY = dragEvent.clientY;
+                if (dragEvent.changedTouches && dragEvent.changedTouches.length > 0) {
+                    dropX = dragEvent.changedTouches[0].clientX;
+                    dropY = dragEvent.changedTouches[0].clientY;
+                }
+                snapDragOffset = { dx: dropX - centerX, dy: dropY - centerY, square: to };
+            }
+        }
+
         renderBoard();
         updateStatus();
         startTimer();

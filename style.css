@@ -987,6 +987,22 @@ button#login-btn:hover {
     pointer-events: auto;
 }
 
+.dropdown-action-btn {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    color: var(--text-color);
+    transition: background 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.dropdown-action-btn:hover {
+    background: rgba(128, 128, 128, 0.08);
+}
+
 .dropdown-item {
     padding: 16px 20px;
     display: flex;
@@ -1390,12 +1406,13 @@ footer {
     background-position: center;
     cursor: pointer;
     z-index: 2;
-    transition: transform 0.2s;
+    transition: transform 0.15s ease-out;
 }
 
 .piece:active {
     transform: scale(1.1);
 }
+
 
 .square.capture-hint {
     position: relative;
@@ -2638,7 +2655,7 @@ footer {
 @keyframes saveDeleteAnim {
     0% {
         opacity: 1;
-        transform: translateX(0);
+        transform: scale(1);
         margin-bottom: 8px;
         /* Standard gap */
         max-height: 200px;
@@ -2646,7 +2663,7 @@ footer {
 
     50% {
         opacity: 0;
-        transform: translateX(100%);
+        transform: scale(0.9);
         margin-bottom: 8px;
         max-height: 100px;
         padding: 15px;
@@ -2654,7 +2671,7 @@ footer {
 
     100% {
         opacity: 0;
-        transform: translateX(100%);
+        transform: scale(0.9);
         margin-bottom: 0;
         max-height: 0;
         padding: 0;
@@ -2664,71 +2681,79 @@ footer {
 }
 
 .deleting-save {
-    animation: saveDeleteAnim 0.4s ease-in forwards !important;
+    animation: saveDeleteAnim 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards !important;
 }
 
 /* --- Menu ↔ Game Transitions --- */
 #main-menu.menu-exit {
-    animation: menuExitAnim 0.4s ease-in forwards;
+    animation: menuExitAnim 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
 }
 
 #main-menu.menu-enter {
-    animation: menuEnterAnim 0.5s ease-out forwards;
+    animation: menuEnterAnim 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
 }
 
 #game-screen.game-enter {
-    animation: gameEnterAnim 0.5s ease-out forwards;
+    animation: gameEnterAnim 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
 }
 
 #game-screen.game-exit {
-    animation: gameExitAnim 0.4s ease-in forwards;
+    animation: gameExitAnim 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
 }
 
 @keyframes menuExitAnim {
     0% {
         opacity: 1;
-        transform: scale(1);
+        transform: scale(1) translateY(0);
+        filter: blur(0px);
     }
 
     100% {
         opacity: 0;
-        transform: scale(0.95);
+        transform: scale(0.95) translateY(10px);
+        filter: blur(5px);
     }
 }
 
 @keyframes menuEnterAnim {
     0% {
         opacity: 0;
-        transform: scale(0.95);
+        transform: scale(0.95) translateY(10px);
+        filter: blur(5px);
     }
 
     100% {
         opacity: 1;
-        transform: scale(1);
+        transform: scale(1) translateY(0);
+        filter: blur(0px);
     }
 }
 
 @keyframes gameEnterAnim {
     0% {
         opacity: 0;
-        transform: scale(1.03);
+        transform: scale(1.03) translateY(-10px);
+        filter: blur(5px);
     }
 
     100% {
         opacity: 1;
-        transform: scale(1);
+        transform: scale(1) translateY(0);
+        filter: blur(0px);
     }
 }
 
 @keyframes gameExitAnim {
     0% {
         opacity: 1;
-        transform: scale(1);
+        transform: scale(1) translateY(0);
+        filter: blur(0px);
     }
 
     100% {
         opacity: 0;
-        transform: scale(1.03);
+        transform: scale(1.03) translateY(-10px);
+        filter: blur(5px);
     }
 }
 
