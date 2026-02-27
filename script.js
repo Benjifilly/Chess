@@ -1497,6 +1497,7 @@ function renderBoard() {
                 if (viewIndex === null && displayPiece.color === myColor) {
                     pieceDiv.draggable = false;
                     pieceDiv.ondragstart = (e) => e.preventDefault();
+    e.stopPropagation();
                     pieceDiv.onmousedown = (e) => handlePointerDown(e, squareName);
                     pieceDiv.ontouchstart = (e) => handleTouchStart(e, squareName);
                     pieceDiv.ontouchmove = (e) => handleTouchMove(e);
@@ -1710,6 +1711,7 @@ function handlePointerDown(e, square) {
     if (isBotThinking) return;
     if (sessionStorage.getItem('gameOverShown') === 'true') return;
     e.preventDefault();
+    e.stopPropagation();
 
     const piece = getPredictedPieceAt(square);
     if (!piece || piece.color !== myColor) return;
@@ -1864,10 +1866,12 @@ function highlightPremoveMoves(square) {
 
 function handleDragOver(e) {
     e.preventDefault();
+    e.stopPropagation();
 }
 
 function handleDrop(e, targetSquare) {
     e.preventDefault();
+    e.stopPropagation();
 }
 
 // --- TOUCH SUPPORT (Mobile Drag & Drop) ---
@@ -1879,6 +1883,7 @@ function handleTouchStart(e, square) {
     if (isBotThinking) return;
     if (sessionStorage.getItem('gameOverShown') === 'true') return;
     e.preventDefault();
+    e.stopPropagation();
 
     const piece = getPredictedPieceAt(square);
     if (!piece || piece.color !== myColor) return;
@@ -1911,6 +1916,7 @@ function handleTouchStart(e, square) {
 function handleTouchMove(e) {
     if (!activeTouchPiece) return;
     e.preventDefault();
+    e.stopPropagation();
     const touch = e.touches[0];
     moveTouchPiece(touch.clientX, touch.clientY);
 }
@@ -1925,6 +1931,7 @@ function moveTouchPiece(x, y) {
 function handleTouchEnd(e) {
     if (!activeTouchPiece) return;
     e.preventDefault();
+    e.stopPropagation();
 
     const touch = e.changedTouches[0];
 
