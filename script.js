@@ -1016,14 +1016,13 @@ function setupGlobalRealtime() {
                 state.status !== 'draw';
 
             // 2. Show invite toast lorsque l'on est sur le menu et qu'une nouvelle partie Duo est créée par l'autre
-            // On vérifie que c'est bien l'autre joueur qui a créé la partie (ex: last_move n'est pas nous ou c'est pas à nous de jouer si on est noir et que c'est le tour des blancs au début)
             const isOnMenu = mainMenuEl && !mainMenuEl.classList.contains('hidden');
 
-            // Pour savoir si c'est nous qui avons créé, on peut regarder si on est l'auteur du dernier move (ou s'il n'y a pas de last_move_ts mais que c'est notre tour et on a pas bougé)
-            // Une façon plus simple: si on vient de créer la partie, on n'est probablement pas sur le menu principal, on a déjà transitionné vers l'écran de jeu.
-            // Mais pour être sûr: on ne montre le toast que si le gameMode actuel n'est pas "duo" (on ne joue pas déjà) et qu'on est au menu
+            // Pour savoir si c'est nous qui avons créé la partie, on compare le timestamp
+            // d'initialisation (state.last_move_ts) avec notre propre lastMoveTimestamp global.
+            const weCreatedIt = (state.last_move_ts === lastMoveTimestamp);
 
-            if (isNewGame && !duoInitializing && isOnMenu && gameMode !== 'duo') {
+            if (isNewGame && isOnMenu && !weCreatedIt) {
                 showToastInvite();
             }
 
@@ -3123,17 +3122,43 @@ function restoreMenuSettings() {
     if (!saved) return;
     try {
         const s = JSON.parse(saved);
-        // Restore Elo
+        // Restore Solo Elo
         if (typeof s.botEloOverride === 'number') {
             menuSoloElo = s.botEloOverride;
             menuSoloDiff = s.botDifficulty || 1;
             menuEloSlider.value = menuSoloElo;
             menuEloDisplay.textContent = menuSoloElo + ' ELO';
-            // Update preset buttons
             document.querySelectorAll('.menu-elo-btn').forEach(btn => {
                 btn.classList.toggle('selected', parseInt(btn.dataset.elo) === menuSoloElo);
             });
         }
+
+        // Restore Duo Time
+        if (typeof s.time === 'number') {
+            menuDuoTime = s.time;
+            document.querySelectorAll('.menu-time-btn').forEach(btn => {
+                btn.classList.toggle('selected', parseInt(btn.dataset.time) === menuDuoTime);
+            });
+        }
+
+        // Restore Duo Color
+        if (typeof s.color === 'string') {
+            menuDuoColor = s.color;
+            document.querySelectorAll('.menu-color-btn').forEach(btn => {
+                btn.classList.toggle('selected', btn.dataset.color === menuDuoColor);
+            });
+            const duoLaunchBtn = document.getElementById('menu-duo-launch');
+            if (duoLaunchBtn) duoLaunchBtn.disabled = false;
+        }
+
+        // Restore Solo Color (if any was saved in the object, currently solo uses another flow but let's check)
+        const activeSoloColorBtn = document.querySelector('#menu-solo-settings .menu-color-btn.selected');
+        if (activeSoloColorBtn) {
+            menuSoloColor = activeSoloColorBtn.dataset.color;
+            const soloLaunchBtn = document.getElementById('menu-solo-launch');
+            if (soloLaunchBtn) soloLaunchBtn.disabled = false;
+        }
+
     } catch (e) { /* ignore */ }
 }
 
@@ -3465,6 +3490,8 @@ async function startNewDuoGame() {
 
 // --- Transition: Menu → Game ---
 function transitionMenuToGame(callback) {
+    if (callback) callback();
+
     mainMenuEl.classList.add('menu-exit');
 
     setTimeout(() => {
@@ -3472,9 +3499,11 @@ function transitionMenuToGame(callback) {
         mainMenuEl.classList.remove('menu-exit');
 
         gameScreen.classList.remove('hidden');
-        gameScreen.classList.add('game-enter');
 
-        if (callback) callback();
+        // Force reflow and exact sizing before animation to prevent distorted grid
+        void gameScreen.offsetWidth;
+
+        gameScreen.classList.add('game-enter');
 
         setTimeout(() => {
             gameScreen.classList.remove('game-enter');
@@ -3773,7 +3802,12 @@ function createSavedGameCard(key, save, index) {
             ${dateText ? `<div class="saved-game-date">${dateText}</div>` : ''}
         </div>
         <div class="saved-game-actions">
-            <button class="resume-btn">Reprendre</button>
+            <button class="resume-btn" title="Reprendre">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+                <span class="resume-text">Reprendre</span>
+            </button>
             <button class="delete-save-btn" title="Supprimer">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                     stroke-linecap="round" stroke-linejoin="round">
@@ -3822,16 +3856,14 @@ function confirmDeleteSave() {
 
     // Animate card removal
     if (card) {
-        card.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
-        card.style.opacity = '0';
-        card.style.transform = 'translateX(20px)';
-        setTimeout(() => {
+        card.classList.add('deleting-save');
+        card.addEventListener('animationend', () => {
             card.remove();
             const list = document.getElementById('saved-games-list');
             if (list && list.children.length === 0) {
                 document.getElementById('saved-games-section').classList.add('hidden');
             }
-        }, 300);
+        });
     }
 }
 
@@ -3878,13 +3910,13 @@ function resumeGame(key) {
         // Save params for replay
         lastGameParams = { mode: 'duo', color: 'white', time: 5 };
 
-        transitionMenuToGame(() => {
-            updateModeBadge();
-            updateOpponentName();
-            if (supabaseClient) {
-                initGame(); // Fetches full state from Supabase
-            }
-        });
+        if (supabaseClient) {
+            initGame(); // Fetches full state from Supabase
+        }
+        updateModeBadge();
+        updateOpponentName();
+
+        transitionMenuToGame(() => { });
         return;
     }
 
@@ -3930,15 +3962,16 @@ function resumeGame(key) {
         lastMove = { from: last.from, to: last.to };
     }
 
+    // Pre-render state before animating the screen transition
+    renderBoard();
+    updateStatus();
+    updateModeBadge();
+    updateOpponentName();
+    startTimer();
+    sessionStorage.removeItem('gameOverShown');
+
     // Transition to game
     transitionMenuToGame(() => {
-        renderBoard();
-        updateStatus();
-        updateModeBadge();
-        updateOpponentName();
-        startTimer();
-        sessionStorage.removeItem('gameOverShown');
-
         // If solo and bot's turn, trigger bot move
         if (gameMode === 'solo' && game.turn() !== myColor && !game.game_over()) {
             makeBotMove();

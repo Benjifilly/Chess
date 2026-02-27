@@ -1185,7 +1185,7 @@ footer {
 .player-status {
     display: flex;
     justify-content: flex-start;
-    gap: 12px;
+    gap: 2px;
     align-items: center;
     font-size: 16px;
     font-weight: 700;
@@ -1321,6 +1321,7 @@ footer {
     width: 10px;
     height: 10px;
     border-radius: 50%;
+    margin-left: 5px;
     background: #555;
     transition: all 0.3s;
 }
@@ -2171,6 +2172,24 @@ footer {
     cursor: pointer;
     transition: transform 150ms cubic-bezier(0.4, 0, 0.2, 1);
     box-shadow: 0 4px 0 rgb(117, 166, 64);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.saved-game-actions .resume-btn svg {
+    margin-right: -4px;
+}
+
+@media (max-width: 480px) {
+    .saved-game-actions .resume-btn .resume-text {
+        display: none;
+    }
+
+    .saved-game-actions .resume-btn {
+        padding: 12px 16px;
+    }
 }
 
 .saved-game-actions .resume-btn:active {
@@ -2414,7 +2433,7 @@ footer {
     -webkit-appearance: none;
     appearance: none;
     height: 6px;
-    border-radius: 3px;
+    border-radius: 25px;
     background: rgba(255, 255, 255, 0.1);
     outline: none;
     transition: background 0.2s ease;
@@ -2451,7 +2470,6 @@ footer {
     font-size: 14px;
     font-weight: 700;
     color: var(--accent);
-    min-width: 70px;
     text-align: right;
     white-space: nowrap;
 }
@@ -2460,7 +2478,7 @@ footer {
 .menu-color-select {
     display: flex;
     justify-content: center;
-    gap: 15px;
+    gap: 20px;
 }
 
 .menu-color-btn {
@@ -2585,7 +2603,7 @@ footer {
     font-weight: bold;
     cursor: pointer;
     transition: transform 0.1s, filter 0.3s;
-    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 4px 0 color-mix(in srgb, var(--accent), black 20%);
     margin-top: 4px;
 }
 
@@ -2614,6 +2632,39 @@ footer {
         opacity: 1;
         transform: translateY(0);
     }
+}
+
+/* --- Save Deletion Animation --- */
+@keyframes saveDeleteAnim {
+    0% {
+        opacity: 1;
+        transform: translateX(0);
+        margin-bottom: 8px;
+        /* Standard gap */
+        max-height: 200px;
+    }
+
+    50% {
+        opacity: 0;
+        transform: translateX(100%);
+        margin-bottom: 8px;
+        max-height: 100px;
+        padding: 15px;
+    }
+
+    100% {
+        opacity: 0;
+        transform: translateX(100%);
+        margin-bottom: 0;
+        max-height: 0;
+        padding: 0;
+        border: none;
+        overflow: hidden;
+    }
+}
+
+.deleting-save {
+    animation: saveDeleteAnim 0.4s ease-in forwards !important;
 }
 
 /* --- Menu ↔ Game Transitions --- */
@@ -3178,13 +3229,12 @@ footer {
     font-weight: 600;
     font-family: 'Fredoka', sans-serif;
     cursor: pointer;
-    box-shadow: 0 2px 8px rgba(136, 176, 75, 0.3);
-    transition: background 0.2s;
+    box-shadow: 0 3px 0 color-mix(in srgb, var(--accent), black 20%);
+    transition: background 0.5s;
     margin: 0;
 }
 
 #toast-join-btn:hover {
-    transform: none;
     background: var(--accent);
 }
 
