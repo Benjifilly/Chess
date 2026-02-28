@@ -79,30 +79,43 @@ const AUDIO_FILES = {
     capture: 'sound/capture.mp3'
 };
 const SOUNDS = {};
+let audioCtx = null;
 
-function loadSounds() {
+async function loadSounds() {
     try {
-        Object.keys(AUDIO_FILES).forEach(key => {
-            const audio = new Audio(AUDIO_FILES[key]);
-            audio.preload = 'auto';
-            // Try to load; browsers may block autoplay until user interaction
-            audio.load();
-            SOUNDS[key] = audio;
-        });
+        // Initialize AudioContext only once
+        if (!audioCtx) {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            audioCtx = new AudioContext();
+        }
+
+        for (const key of Object.keys(AUDIO_FILES)) {
+            const response = await fetch(AUDIO_FILES[key]);
+            const arrayBuffer = await response.arrayBuffer();
+            const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+            SOUNDS[key] = audioBuffer;
+        }
     } catch (e) {
-        console.warn('Erreur preload sons:', e);
+        console.warn('Erreur preload sons (Web Audio API):', e);
     }
 }
 
 function playSound(name) {
-    const a = SOUNDS[name];
-    if (!a) return;
+    // If context isn't ready or suspended (browser policy), try to resume
+    if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume().catch(() => {});
+    }
+
+    const buffer = SOUNDS[name];
+    if (!audioCtx || !buffer) return;
+
     try {
-        // Restart sound
-        a.currentTime = 0;
-        const p = a.play();
-        if (p && p.catch) p.catch(() => { });
+        const source = audioCtx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(audioCtx.destination);
+        source.start(0);
     } catch (e) {
+        console.warn('Erreur lecture son:', e);
     }
 }
 
@@ -1072,9 +1085,6 @@ function showToast({ title, message, showJoin = false } = {}) {
     const messageEl = document.getElementById('toast-message');
 
     if (!toast) return;
-
-    // Play sound if available for notification
-    playSound('move');
 
     if (titleEl && typeof title === 'string') titleEl.textContent = title;
     if (messageEl && typeof message === 'string') messageEl.textContent = message;
