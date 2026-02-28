@@ -205,6 +205,69 @@ footer {
     }
 }
 
+/* =========================================
+   TOP RIGHT MENU ACTIONS
+========================================= */
+.menu-top-right-actions {
+    position: fixed;
+    top: 30px;
+    right: 30px;
+    display: flex;
+    gap: 12px;
+    z-index: 10000; 
+}
+@media (max-width: 768px) {
+    .menu-top-right-actions {
+        top: 20px;
+        right: 20px;
+    }
+}
+
+.menu-icon-btn {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-color);
+    cursor: pointer;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    padding: 0;
+    opacity: 0.8;
+}
+
+.menu-icon-btn svg {
+    width: 22px;
+    height: 22px;
+}
+
+.menu-icon-btn:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.2);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.25);
+}
+
+.menu-icon-btn:active {
+    transform: translateY(0) scale(0.95);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.menu-icon-btn.logout-btn {
+    color: #ff6b6b;
+}
+
+.menu-icon-btn.logout-btn:hover {
+    background: rgba(255, 107, 107, 0.1);
+    border-color: rgba(255, 107, 107, 0.2);
+}
+
 .login-container {
     position: relative;
     z-index: 1;

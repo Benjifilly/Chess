@@ -470,13 +470,19 @@ function login(name) {
 }
 
 function logout() {
-    if (confirm('Voulez-vous vraiment vous déconnecter ?')) {
+    openModal('logout-modal');
+}
+
+async function confirmLogout() {
+    try {
         if (supabaseClient) {
-            supabaseClient.auth.signOut();
+            await supabaseClient.auth.signOut();
         }
-        localStorage.removeItem('chess_user_name');
-        location.reload();
+    } catch (e) {
+        console.error('Logout error:', e);
     }
+    localStorage.removeItem('chess_user_name');
+    location.reload();
 }
 
 // --- MODALS & SETTINGS ---
@@ -1103,6 +1109,17 @@ function showToast({ title, message, showJoin = false } = {}) {
     toastTimeout = setTimeout(() => {
         toast.classList.add('hidden');
     }, 10000);
+}
+
+/**
+ * Show a simple toast for features not yet implemented
+ */
+function showFutureToast() {
+    showToast({
+        title: "Bientôt disponible",
+        message: "Pas encore mon coeur :P",
+        showJoin: false
+    });
 }
 
 function showToastInvite() {
