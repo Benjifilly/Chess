@@ -1,0 +1,5 @@
+const CONFIG = {
+    SUPABASE_URL: 'YOUR_SUPABASE_URL',
+    SUPABASE_KEY: 'YOUR_SUPABASE_KEY',
+    GAME_ID: 'main_game'
+};
