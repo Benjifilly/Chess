@@ -218,7 +218,7 @@ footer {
 }
 @media (max-width: 768px) {
     .menu-top-right-actions {
-        top: calc(20px + env(safe-area-inset-top, 0px));
+        top: env(safe-area-inset-top, 0px);
         right: 20px;
     }
 }
