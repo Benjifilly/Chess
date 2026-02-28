@@ -210,7 +210,7 @@ footer {
 ========================================= */
 .menu-top-right-actions {
     position: fixed;
-    top: 30px;
+    top: calc(30px + env(safe-area-inset-top, 0px));
     right: 30px;
     display: flex;
     gap: 12px;
@@ -218,7 +218,7 @@ footer {
 }
 @media (max-width: 768px) {
     .menu-top-right-actions {
-        top: 20px;
+        top: calc(20px + env(safe-area-inset-top, 0px));
         right: 20px;
     }
 }
@@ -3227,7 +3227,7 @@ footer {
 
 .toast-container {
     position: fixed;
-    top: 20px;
+    top: calc(20px + env(safe-area-inset-top, 0px));
     left: 50%;
     transform: translateX(-50%);
     z-index: 10000;
