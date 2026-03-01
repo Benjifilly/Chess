@@ -11,15 +11,17 @@
     --modal-bg: rgba(0, 0, 0, 0.7);
 }
 
-[data-theme="light"] {
-    --bg-color: #FFF8E7;
-    --card-bg: #FFFFFF;
-    --text-color: #4A4A4A;
-    --shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-    --modal-bg: rgba(0, 0, 0, 0.5);
-    --board-light: #eeeed2;
-    --board-dark: #769656;
-    --accent: #88B04B;
+[data-theme="noir"] {
+    /* Thème Noir - Ultra Dark & Contrast */
+    --bg-color: #050505;
+    --card-bg: #121212;
+    --text-color: #ffffff;
+    --shadow: 0 4px 20px rgba(0, 0, 0, 0.9);
+    --modal-bg: rgba(0, 0, 0, 0.95);
+    --board-light: #f0f0f0;
+    --board-dark: #1a1a1a;
+    --accent: #808080;
+    --accent-hover: #606060;
 }
 
 [data-theme="dark"] {
@@ -216,10 +218,22 @@ footer {
     gap: 12px;
     z-index: 10000; 
 }
+.menu-top-left-actions {
+    position: fixed;
+    top: calc(30px + env(safe-area-inset-top, 0px));
+    left: 30px;
+    display: flex;
+    gap: 12px;
+    z-index: 10000; 
+}
 @media (max-width: 768px) {
     .menu-top-right-actions {
         top: env(safe-area-inset-top, 0px);
         right: 20px;
+    }
+    .menu-top-left-actions {
+        top: env(safe-area-inset-top, 0px);
+        left: 20px;
     }
 }
 
@@ -1039,10 +1053,6 @@ button#login-btn:hover {
     flex-direction: column;
 }
 
-[data-theme="light"] .dropdown {
-    background: rgba(255, 255, 255, 0.85);
-    border: 1px solid rgba(0, 0, 0, 0.05);
-}
 
 .dropdown.active {
     opacity: 1;
@@ -1566,6 +1576,59 @@ footer {
     --board-dark: #ec407a;
     --accent: #f06292;
     --accent-hover: #e91e63;
+}
+
+[data-theme="violet"] {
+    --bg-color: #2e1a47;
+    --card-bg: #3d245d;
+    --text-color: #f3e5f5;
+    --board-light: #e1bee7;
+    --board-dark: #9c27b0;
+    --accent: #ba68c8;
+    --accent-hover: #ab47bc;
+}
+
+[data-theme="ambre"] {
+    /* Ambre - Warm Dark Theme */
+    --bg-color: #1a0f00;
+    --card-bg: #2a1b0a;
+    --text-color: #ffedcc;
+    --shadow: 0 4px 25px rgba(242, 169, 0, 0.15);
+    --modal-bg: rgba(26, 15, 0, 0.95);
+    --board-light: #ffedcc;
+    --board-dark: #8c5d14;
+    --accent: #f2a900;
+    --accent-hover: #d18d00;
+}
+
+[data-theme="sunset"] {
+    --bg-color: #241824;
+    --card-bg: #3a2140;
+    --text-color: #ffe7d6;
+    --board-light: #ffd6b0;
+    --board-dark: #c67a2b;
+    --accent: #e1b955;
+    --accent-hover: #cda347;
+}
+
+[data-theme="emerald"] {
+    --bg-color: #0f1f1c;
+    --card-bg: #1a3530;
+    --text-color: #e6fff6;
+    --board-light: #c7f2e3;
+    --board-dark: #2e8b74;
+    --accent: #3dbb98;
+    --accent-hover: #2f9f80;
+}
+
+[data-theme="midnight"] {
+    --bg-color: #0a1020;
+    --card-bg: #121a2f;
+    --text-color: #dfe8ff;
+    --board-light: #c9d7ff;
+    --board-dark: #4b5d9a;
+    --accent: #6f8fff;
+    --accent-hover: #5a7af0;
 }
 
 .hint {
@@ -2918,31 +2981,6 @@ footer {
         0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
-[data-theme="light"] #main-menu .menu-mode-card:hover {
-    border-color: rgba(0, 0, 0, 0.12);
-}
-
-[data-theme="light"] .saved-game-card {
-    background: rgba(0, 0, 0, 0.03);
-    border-color: rgba(0, 0, 0, 0.06);
-}
-
-[data-theme="light"] .menu-elo-btn,
-[data-theme="light"] .menu-color-btn,
-[data-theme="light"] .menu-time-btn {
-    background: rgba(0, 0, 0, 0.03);
-    border-color: rgba(0, 0, 0, 0.08);
-}
-
-[data-theme="light"] .menu-bg-pattern {
-    background-image:
-        repeating-conic-gradient(rgba(0, 0, 0, 0.03) 0% 25%,
-            transparent 0% 50%);
-}
-
-[data-theme="light"] .menu-bg-vignette {
-    background: radial-gradient(ellipse at center, transparent 40%, rgba(255, 255, 255, 0.3) 100%);
-}
 
 /* Chat Sidebar */
 .chat-sidebar {

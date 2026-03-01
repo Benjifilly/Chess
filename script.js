@@ -278,7 +278,14 @@ async function checkLogin() {
 }
 
 function loadTheme() {
-    const savedTheme = localStorage.getItem('chess_theme') || 'dark';
+    let savedTheme = localStorage.getItem('chess_theme') || 'dark';
+    
+    // Migration de l'ancien thème 'light' vers 'noir'
+    if (savedTheme === 'light') {
+        savedTheme = 'noir';
+        localStorage.setItem('chess_theme', 'noir');
+    }
+
     if (savedTheme === 'custom') {
         document.documentElement.setAttribute('data-theme', 'custom');
         loadCustomColors();
@@ -3212,6 +3219,9 @@ function showMainMenu() {
     // Check for saved games
     checkSavedGames();
 
+    // Check notification status to show/hide the top-left bell
+    checkNotificationStatus();
+
     // Show menu
     mainMenuEl.classList.remove('hidden');
 }
@@ -3549,30 +3559,34 @@ async function startNewDuoGame() {
 
     // Reset Supabase FIRST to avoid stale state triggers
     if (supabaseClient) {
-        duoInitializing = true;
         try {
+            const opponentName = myName === 'Benji' ? 'Sanaa' : 'Benji';
+            
             await supabaseClient
                 .from('chess_state')
-                .update({
+                .upsert({
+                    id: GAME_ID,
                     fen: game.fen(),
-                    last_move: '',
+                    pgn: game.pgn(),
                     white_player: whitePlayerName,
-                    pgn: '',
-                    white_time: whiteTimeRemaining,
-                    black_time: blackTimeRemaining,
-                    last_move_ts: lastMoveTimestamp,
+                    white_time: timeControl,
+                    black_time: timeControl,
                     time_control: timeControl,
-                    status: null,
+                    last_move_ts: Date.now(),
+                    status: 'active',
                     draw_offer: null,
-                    draw_rejected: null,
-                    resigned_by: null
-                })
-                .eq('id', GAME_ID);
-        } catch (error) {
-            console.error('Erreur Supabase reset:', error);
+                    resigned_by: null,
+                    draw_rejected: null
+                });
+
+            // Trigger Push Notification to opponent
+            notifyOpponentOfNewGame(opponentName);
+            
+        } catch (e) {
+            console.error('Erreur Supabase startNewDuoGame:', e);
         }
-        duoInitializing = false;
     }
+    duoInitializing = false;
 
     transitionMenuToGame(() => {
         renderBoard();
@@ -4115,3 +4129,179 @@ function resumeGame(key) {
         }
     }
 })();
+
+// ==========================================
+// PUSH NOTIFICATIONS (PWA iOS / Android)
+// ==========================================
+
+function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+        outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+}
+
+// 1. Enregistrement du Service Worker
+if ('serviceWorker' in navigator && 'PushManager' in window) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+            .then(reg => {
+                console.log('Service Worker enregistré:', reg);
+                checkNotificationStatus();
+            })
+            .catch(err => console.error('Erreur Service Worker:', err));
+    });
+}
+
+async function checkNotificationStatus() {
+    const btn = document.getElementById('top-left-push-btn');
+    if (!btn) return;
+
+    // Masquer si on est en jeu
+    if (!gameScreen.classList.contains('hidden')) {
+        btn.classList.add('hidden');
+        return;
+    }
+
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        btn.classList.add('hidden');
+        return;
+    }
+
+    if (Notification.permission === 'granted') {
+        const registration = await navigator.serviceWorker.ready;
+        try {
+            const subscription = await registration.pushManager.getSubscription();
+            if (subscription) {
+                btn.classList.add('hidden');
+                return;
+            }
+        } catch (e) {
+            console.error('Error checking subscription:', e);
+        }
+    }
+    
+    // Si permission non accordée ou pas de souscription active, on l'affiche (dans le menu)
+    if (!mainMenuEl.classList.contains('hidden')) {
+        btn.classList.remove('hidden');
+    } else {
+        btn.classList.add('hidden');
+    }
+}
+
+// 2. Demande de permission et souscription
+async function requestNotificationPermission() {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        alert("Les notifications Push ne sont pas supportées sur ce navigateur.");
+        return;
+    }
+
+    try {
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') {
+            alert('Vous avez refusé les notifications.');
+            return;
+        }
+
+        const registration = await navigator.serviceWorker.ready;
+        
+        // Obtenir ou créer la souscription
+        let subscription = await registration.pushManager.getSubscription();
+        if (!subscription) {
+            if (!CONFIG.VAPID_PUBLIC_KEY) {
+                alert("Erreur: La clé VAPID publique n'est pas renseignée dans config.js");
+                return;
+            }
+            
+            const applicationServerKey = urlBase64ToUint8Array(CONFIG.VAPID_PUBLIC_KEY);
+            subscription = await registration.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: applicationServerKey
+            });
+        }
+        
+        console.log('Push Subscription obtenue:', JSON.stringify(subscription));
+        localStorage.setItem('push_subscription', JSON.stringify(subscription));
+        
+        // 3. Sauvegarder dans Supabase pour ce joueur
+        const { data: userData } = await supabaseClient.auth.getUser();
+        if (userData?.user) {
+            const { error } = await supabaseClient
+                .from('profiles')
+                .upsert({ 
+                    id: userData.user.id, 
+                    username: myName, // Utilise myName ('Benji' ou 'Sanaa')
+                    push_subscription: JSON.stringify(subscription) 
+                }, { onConflict: 'id' });
+                
+            if (error) {
+                console.warn('Impossible de sauvegarder la souscription dans Supabase:', error);
+            }
+        }
+        
+        // 4. Mettre à jour l'UI du bouton
+        const btn = document.getElementById('push-notif-btn');
+        if (btn) {
+            btn.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+            </svg> Notifications activées`;
+            btn.style.background = '#4caf50';
+            btn.style.color = 'white';
+            btn.style.borderColor = '#4caf50';
+            btn.disabled = true;
+        }
+
+        // Masquer aussi le bouton en haut à gauche
+        const topBtn = document.getElementById('top-left-push-btn');
+        if (topBtn) topBtn.classList.add('hidden');
+        
+        alert("Notifications actives ! Vous recevrez une alerte lors d'une invitation en Duo lorsque l'application est fermée.");
+        
+    } catch (e) {
+        console.error('Erreur inscription push:', e);
+        alert("Erreur lors de l'activation des notifications. Assurez-vous d'autoriser les notifications dans votre navigateur.");
+    }
+}
+
+// 3. Envoyer une notification Push via Supabase Edge Function
+async function notifyOpponentOfNewGame(opponentName) {
+    if (!supabaseClient) return;
+    
+    try {
+        // Récupérer la souscription de l'adversaire dans la table 'profiles'
+        const { data, error } = await supabaseClient
+            .from('profiles')
+            .select('push_subscription')
+            .eq('username', opponentName)
+            .single();
+            
+        if (error || !data || !data.push_subscription) {
+            console.warn(`Pas de souscription push trouvée pour ${opponentName}`);
+            return;
+        }
+        
+        const subscription = JSON.parse(data.push_subscription);
+        
+        // Appeler la Edge Function
+        const { data: funcData, error: funcError } = await supabaseClient.functions.invoke('send_push', {
+            body: {
+                subscription: subscription,
+                title: 'Nouvelle partie ChessMate !',
+                message: `${myName} vous invite à une partie Duo. Cliquez pour rejoindre.`,
+                url: '/'
+            }
+        });
+        
+        if (funcError) throw funcError;
+        console.log('Notification Push envoyée avec succès:', funcData);
+        
+    } catch (e) {
+        console.error('Erreur lors de l’envoi du Push:', e);
+    }
+}
+
