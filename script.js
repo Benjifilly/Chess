@@ -391,6 +391,11 @@ function loadCustomColors() {
 }
 
 loginBtn.addEventListener('click', async () => {
+    // Resume AudioContext on user gesture
+    if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+
     const code = passwordInput.value.trim();
     if (!code) return;
 
@@ -4148,27 +4153,27 @@ function urlBase64ToUint8Array(base64String) {
 
 // 1. Enregistrement du Service Worker
 if ('serviceWorker' in navigator && 'PushManager' in window) {
-    window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js')
-            .then(reg => {
-                console.log('Service Worker enregistré:', reg);
-                checkNotificationStatus();
-            })
-            .catch(err => console.error('Erreur Service Worker:', err));
-    });
+    navigator.serviceWorker.register('sw.js')
+        .then(reg => {
+            console.log('Service Worker enregistré:', reg);
+            checkNotificationStatus();
+        })
+        .catch(err => console.error('Erreur Service Worker:', err));
 }
 
 async function checkNotificationStatus() {
     const btn = document.getElementById('top-left-push-btn');
     if (!btn) return;
 
-    const currentMenu = mainMenuEl || document.getElementById('main-menu');
-    const currentGameScreen = gameScreen || document.getElementById('game-screen');
-    
-    if (!currentMenu || !currentGameScreen) return;
-
     // Masquer si on est en jeu
-    if (!currentGameScreen.classList.contains('hidden')) {
+    const currentGameScreen = gameScreen || document.getElementById('game-screen');
+    if (currentGameScreen && !currentGameScreen.classList.contains('hidden')) {
+        btn.classList.add('hidden');
+        return;
+    }
+
+    // Si les notifications sont déjà accordées, on enlève le bouton définitivement
+    if (Notification.permission === 'granted') {
         btn.classList.add('hidden');
         return;
     }
@@ -4178,23 +4183,9 @@ async function checkNotificationStatus() {
         return;
     }
 
-    // Si permission déjà accordée ET souscription active -> Masquer
-    if (Notification.permission === 'granted') {
-        const registration = await navigator.serviceWorker.ready;
-        try {
-            const subscription = await registration.pushManager.getSubscription();
-            if (subscription) {
-                btn.classList.add('hidden');
-                return;
-            }
-        } catch (e) {
-            console.error('Error checking subscription:', e);
-        }
-    }
-    
-    // Si on arrive ici, soit pas de permission, soit pas de souscription
-    // On l'affiche uniquement si on est sur le menu principal
-    if (!currentMenu.classList.contains('hidden')) {
+    // Si on est sur le menu principal et pas encore de permission
+    const currentMenu = mainMenuEl || document.getElementById('main-menu');
+    if (currentMenu && !currentMenu.classList.contains('hidden')) {
         btn.classList.remove('hidden');
     } else {
         btn.classList.add('hidden');
