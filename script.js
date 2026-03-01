@@ -247,6 +247,7 @@ function initializeApp() {
 
         checkLogin();
         loadTheme();
+        checkNotificationStatus();
         // Précharger les sons (si disponibles)
         loadSounds();
     } catch (error) {
@@ -3219,11 +3220,11 @@ function showMainMenu() {
     // Check for saved games
     checkSavedGames();
 
-    // Check notification status to show/hide the top-left bell
-    checkNotificationStatus();
-
     // Show menu
     mainMenuEl.classList.remove('hidden');
+
+    // Check notification status to show/hide the top-left bell
+    checkNotificationStatus();
 }
 
 function restoreMenuSettings() {
@@ -4161,8 +4162,13 @@ async function checkNotificationStatus() {
     const btn = document.getElementById('top-left-push-btn');
     if (!btn) return;
 
+    const currentMenu = mainMenuEl || document.getElementById('main-menu');
+    const currentGameScreen = gameScreen || document.getElementById('game-screen');
+    
+    if (!currentMenu || !currentGameScreen) return;
+
     // Masquer si on est en jeu
-    if (!gameScreen.classList.contains('hidden')) {
+    if (!currentGameScreen.classList.contains('hidden')) {
         btn.classList.add('hidden');
         return;
     }
@@ -4172,6 +4178,7 @@ async function checkNotificationStatus() {
         return;
     }
 
+    // Si permission déjà accordée ET souscription active -> Masquer
     if (Notification.permission === 'granted') {
         const registration = await navigator.serviceWorker.ready;
         try {
@@ -4185,8 +4192,9 @@ async function checkNotificationStatus() {
         }
     }
     
-    // Si permission non accordée ou pas de souscription active, on l'affiche (dans le menu)
-    if (!mainMenuEl.classList.contains('hidden')) {
+    // Si on arrive ici, soit pas de permission, soit pas de souscription
+    // On l'affiche uniquement si on est sur le menu principal
+    if (!currentMenu.classList.contains('hidden')) {
         btn.classList.remove('hidden');
     } else {
         btn.classList.add('hidden');
