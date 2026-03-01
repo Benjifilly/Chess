@@ -4293,6 +4293,11 @@ async function notifyOpponentOfNewGame(opponentName) {
                 title: 'Nouvelle partie ChessMate !',
                 message: `${myName} vous invite à une partie Duo. Cliquez pour rejoindre.`,
                 url: '/'
+            },
+            headers: {
+                // On envoie la clé anon comme token d'autorisation
+                'Authorization': `Bearer ${CONFIG.SUPABASE_KEY}`,
+                'apikey': CONFIG.SUPABASE_KEY
             }
         });
         
