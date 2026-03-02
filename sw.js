@@ -11,12 +11,7 @@ self.addEventListener('push', function(event) {
     if (event.data) {
         event.waitUntil(
             clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(clientList) {
-                // Vérifier si au moins un onglet/fenêtre de l'app est au premier plan
-                const isAppVisible = clientList.some(client => {
-                    const isSameApp = client.url.indexOf(self.registration.scope) !== -1;
-                    return isSameApp && client.visibilityState === 'visible' && client.focused;
-                });
-
+                const isAppVisible = clientList.some(client => client.visibilityState === 'visible');
 
                 if (isAppVisible) {
                     return;
