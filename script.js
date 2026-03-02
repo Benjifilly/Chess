@@ -1075,8 +1075,9 @@ function setupGlobalRealtime() {
             // 2. Show invite toast lorsque l'on est sur le menu et qu'une nouvelle partie Duo est créée par l'autre
             const isOnMenu = mainMenuEl && !mainMenuEl.classList.contains('hidden');
 
-            // Pour savoir si c'est nous qui avons créé la partie, on compare le timestamp
-            // d'initialisation (state.last_move_ts) avec notre propre lastMoveTimestamp global.
+            // Vérifier si c'est nous qui avons créé la partie :
+            // On compare le timestamp stocké localement avec celui de la DB.
+            // (Le upsert utilise lastMoveTimestamp, donc les valeurs correspondent.)
             const weCreatedIt = (state.last_move_ts === lastMoveTimestamp);
 
             if (isNewGame && isOnMenu && !weCreatedIt) {
@@ -3586,7 +3587,7 @@ async function startNewDuoGame() {
                     white_time: timeControl,
                     black_time: timeControl,
                     time_control: timeControl,
-                    last_move_ts: Date.now(),
+                    last_move_ts: lastMoveTimestamp,
                     status: 'active',
                     draw_offer: null,
                     resigned_by: null,
@@ -4182,39 +4183,64 @@ async function checkNotificationStatus() {
     const btn = document.getElementById('top-left-push-btn');
     if (!btn) return;
 
+    // Masquer par défaut, on n'affiche que si nécessaire
+    btn.classList.add('hidden');
+
     // Masquer si on est en jeu
     const currentGameScreen = gameScreen || document.getElementById('game-screen');
     if (currentGameScreen && !currentGameScreen.classList.contains('hidden')) {
-        btn.classList.add('hidden');
         return;
     }
 
-    // Si les notifications sont accordées, on vérifie quand même si on a une souscription active
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        return;
+    }
+
+    // Si les notifications sont accordées, vérifier la souscription
     if (Notification.permission === 'granted') {
         try {
             const registration = await navigator.serviceWorker.ready;
             const subscription = await registration.pushManager.getSubscription();
             if (subscription) {
-                btn.classList.add('hidden');
+                // Tout est bon, bouton reste masqué
                 return;
             }
-            // Si pas de souscription active malgré la permission, on laisse le bouton pour qu'il puisse se réabonner
+            // Pas de souscription malgré permission : tenter de re-souscrire silencieusement
+            if (CONFIG.VAPID_PUBLIC_KEY) {
+                const applicationServerKey = urlBase64ToUint8Array(CONFIG.VAPID_PUBLIC_KEY);
+                const newSub = await registration.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: applicationServerKey
+                });
+                if (newSub) {
+                    localStorage.setItem('push_subscription', JSON.stringify(newSub));
+                    // Sync avec Supabase
+                    if (supabaseClient) {
+                        const { data: userData } = await supabaseClient.auth.getUser();
+                        if (userData?.user) {
+                            await supabaseClient.from('profiles').upsert({
+                                id: userData.user.id,
+                                username: myName,
+                                push_subscription: JSON.stringify(newSub)
+                            }, { onConflict: 'id' });
+                        }
+                    }
+                    return; // Souscription restaurée, bouton reste masqué
+                }
+            }
         } catch (e) {
-            console.warn('Erreur check subscription status:', e);
+            console.warn('Erreur check/restore subscription:', e);
         }
     }
 
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-        btn.classList.add('hidden');
-        return;
+    if (Notification.permission === 'denied') {
+        return; // L'utilisateur a bloqué, on ne peut rien faire
     }
 
-    // Si on est sur le menu principal et pas encore de permission
+    // Permission 'default' : afficher le bouton sur le menu principal
     const currentMenu = mainMenuEl || document.getElementById('main-menu');
     if (currentMenu && !currentMenu.classList.contains('hidden')) {
         btn.classList.remove('hidden');
-    } else {
-        btn.classList.add('hidden');
     }
 }
 
@@ -4285,11 +4311,11 @@ async function requestNotificationPermission() {
         const topBtn = document.getElementById('top-left-push-btn');
         if (topBtn) topBtn.classList.add('hidden');
         
-        alert("Notifications actives ! Vous recevrez une alerte lors d'une invitation en Duo lorsque l'application est fermée.");
+        showToast({ title: 'Notifications activées', message: "Vous recevrez une alerte lors d'une invitation Duo.", showJoin: false });
         
     } catch (e) {
         console.error('Erreur inscription push:', e);
-        alert("Erreur lors de l'activation des notifications. Assurez-vous d'autoriser les notifications dans votre navigateur.");
+        showToast({ title: 'Erreur', message: "Impossible d'activer les notifications. Vérifiez les permissions de votre navigateur.", showJoin: false });
     }
 }
 
@@ -4316,8 +4342,8 @@ async function notifyOpponentOfNewGame(opponentName) {
         const { data: funcData, error: funcError } = await supabaseClient.functions.invoke('send_push', {
             body: {
                 subscription: subscription,
-                title: 'Nouvelle partie ChessMate !',
-                message: `${myName} vous invite à une partie Duo. Cliquez pour rejoindre.`,
+                title: 'Nouvelle partie',
+                message: `${myName} vous invite à jouer`,
                 url: window.location.href
             },
             headers: {

@@ -23,10 +23,10 @@ self.addEventListener('push', function (event) {
     console.warn('[SW] push payload parse error:', err);
   }
 
-  const title   = data.title  || 'ChessMate';
-  const body    = data.body   || "Un adversaire vous invite à jouer !";
-  const destUrl = data.url    || '/Chess/?from=push';
-  const tag     = data.tag    || 'chessmate-invite';
+  const title   = data.title   || 'ChessMate';
+  const body    = data.message || data.body || "Un adversaire vous invite à jouer !";
+  const destUrl = data.url     || '/Chess/?from=push';
+  const tag     = data.tag     || 'chessmate-invite';
 
   const notifOptions = {
     body,
