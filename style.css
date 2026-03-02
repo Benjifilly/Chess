@@ -2200,7 +2200,7 @@ footer {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 16px 18px;
+    padding: 10px 18px;
     background: rgba(255, 255, 255, 0.04);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
@@ -2282,7 +2282,7 @@ footer {
 .saved-game-moves {
     font-size: 13px;
     opacity: 0.5;
-    margin-left: 19px;
+    margin-left: 0;
     margin-top: 2px;
 }
 
@@ -2290,7 +2290,7 @@ footer {
     font-size: 12px;
     opacity: 0.4;
     color: var(--text-color);
-    margin-left: 19px;
+    margin-left: 0;
     margin-top: 4px;
 }
 

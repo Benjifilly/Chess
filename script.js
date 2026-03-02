@@ -3922,7 +3922,6 @@ function createSavedGameCard(key, save, index) {
                 ${timeText ? `<span class="time-tag">${timeText}</span>` : ''}
             </div>
             <div class="saved-game-turn">
-                <span class="turn-dot ${turnDotClass}"></span>
                 Tour des ${turnColor}
             </div>
             <div class="saved-game-moves">${save.moveCount} coup${save.moveCount > 1 ? 's' : ''} joué${save.moveCount > 1 ? 's' : ''}</div>

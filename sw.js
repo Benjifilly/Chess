@@ -9,32 +9,44 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('push', function(event) {
     if (event.data) {
-        try {
-            const data = event.data.json();
-            const title = data.title || 'ChessMate';
-            const options = {
-                body: data.message || 'Nouvelle notification',
-                icon: 'images/logo.png',
-                badge: 'images/logo.png',
-                data: {
-                    url: data.url || self.registration.scope
-                },
-                vibrate: [200, 100, 200],
-                tag: 'duo-invite',
-                renotify: true,
-                actions: [
-                    { action: 'open', title: 'Rejoindre' }
-                ]
-            };
-            
-            event.waitUntil(self.registration.showNotification(title, options));
-        } catch (e) {
-            event.waitUntil(self.registration.showNotification('ChessMate', {
-                body: event.data.text(),
-                icon: 'images/logo.png',
-                data: { url: self.registration.scope }
-            }));
-        }
+        event.waitUntil(
+            clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(clientList) {
+                const isAppVisible = clientList.some(client => 
+                    client.url.startsWith(self.registration.scope) && client.visibilityState === 'visible'
+                );
+
+                if (isAppVisible) {
+                    return;
+                }
+
+                try {
+                    const data = event.data.json();
+                    const title = data.title || 'ChessMate';
+                    const options = {
+                        body: data.message || 'Nouvelle notification',
+                        icon: 'images/logo.png',
+                        badge: 'images/logo.png',
+                        data: {
+                            url: data.url || self.registration.scope
+                        },
+                        vibrate: [200, 100, 200],
+                        tag: 'duo-invite',
+                        renotify: true,
+                        actions: [
+                            { action: 'open', title: 'Rejoindre' }
+                        ]
+                    };
+                    
+                    return self.registration.showNotification(title, options);
+                } catch (e) {
+                    return self.registration.showNotification('ChessMate', {
+                        body: event.data.text(),
+                        icon: 'images/logo.png',
+                        data: { url: self.registration.scope }
+                    });
+                }
+            })
+        );
     }
 });
 
