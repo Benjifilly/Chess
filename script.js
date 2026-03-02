@@ -4168,6 +4168,16 @@ if ('serviceWorker' in navigator && 'PushManager' in window) {
         .catch(err => console.error('Erreur Service Worker:', err));
 }
 
+// Réception des messages du Service Worker (push reçu en foreground)
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', function (event) {
+    if (event.data && event.data.type === 'PUSH_RECEIVED') {
+      console.log('[App] Push reçu en foreground:', event.data.data);
+      // Exemple : showInAppBanner(event.data.data.body);
+    }
+  });
+}
+
 async function checkNotificationStatus() {
     const btn = document.getElementById('top-left-push-btn');
     if (!btn) return;
