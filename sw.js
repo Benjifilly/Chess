@@ -1,42 +1,38 @@
 // Service Worker for ChessMate Push Notifications
 self.addEventListener('install', (event) => {
     self.skipWaiting();
-    console.log('Service Worker: Installed');
 });
 
 self.addEventListener('activate', (event) => {
     event.waitUntil(clients.claim());
-    console.log('Service Worker: Activated');
 });
 
 self.addEventListener('push', function(event) {
-    console.log('Service Worker: Push reçu', event);
     if (event.data) {
         try {
             const data = event.data.json();
             const title = data.title || 'ChessMate';
             const options = {
                 body: data.message || 'Nouvelle notification',
-                icon: data.icon || 'images/logo.png',
-                badge: data.badge || 'images/logo.png',
+                icon: 'images/logo.png',
+                badge: 'images/logo.png',
                 data: {
                     url: data.url || self.registration.scope
                 },
-                vibrate: [100, 50, 100],
+                vibrate: [200, 100, 200],
+                tag: 'duo-invite',
+                renotify: true,
                 actions: [
-                    { action: 'open', title: 'Voir la partie' }
+                    { action: 'open', title: 'Rejoindre' }
                 ]
             };
             
             event.waitUntil(self.registration.showNotification(title, options));
         } catch (e) {
-            console.log('Service Worker: Push data non-JSON', event.data.text());
             event.waitUntil(self.registration.showNotification('ChessMate', {
                 body: event.data.text(),
                 icon: 'images/logo.png',
-                data: {
-                    url: self.registration.scope
-                }
+                data: { url: self.registration.scope }
             }));
         }
     }
@@ -50,13 +46,19 @@ self.addEventListener('notificationclick', function(event) {
         targetUrl = event.notification.data.url;
     }
 
+    const url = new URL(targetUrl, self.registration.scope);
+    url.searchParams.set('from', 'push');
+    const fullTargetUrl = url.href;
+
     event.waitUntil(
         clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(clientList) {
-            const fullTargetUrl = new URL(targetUrl, self.registration.scope).href;
-            
             for (let i = 0; i < clientList.length; i++) {
                 const client = clientList[i];
                 if (client.url.startsWith(self.registration.scope) && 'focus' in client) {
+
+                    if ('navigate' in client) {
+                        client.navigate(fullTargetUrl);
+                    }
                     return client.focus();
                 }
             }

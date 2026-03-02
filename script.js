@@ -232,11 +232,9 @@ if (document.readyState === 'loading') {
 
 function initializeApp() {
     try {
-        // Initialiser Chess.js
         game = new Chess();
         console.log('Chess.js initialisé:', game);
 
-        // Initialiser Supabase
         if (window.supabase && window.supabase.createClient) {
             const { createClient } = window.supabase;
             supabaseClient = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
@@ -245,10 +243,17 @@ function initializeApp() {
             console.warn('Supabase non disponible');
         }
 
-        checkLogin();
+        checkLogin().then(() => {
+            const params = new URLSearchParams(window.location.search);
+            if (params.get('from') === 'push') {
+                console.log('Retour via notification push');
+                if (myName) {
+                    resumeGame('duo');
+                }
+            }
+        });
         loadTheme();
         checkNotificationStatus();
-        // Précharger les sons (si disponibles)
         loadSounds();
     } catch (error) {
         console.error('Erreur initialisation:', error);
@@ -493,6 +498,9 @@ function login(name) {
 
     // Show main menu instead of game screen directly
     showMainMenu();
+    
+    // Synchroniser la souscription push si déjà accordée
+    syncPushSubscription();
 }
 
 function logout() {
@@ -4172,10 +4180,19 @@ async function checkNotificationStatus() {
         return;
     }
 
-    // Si les notifications sont déjà accordées, on enlève le bouton définitivement
+    // Si les notifications sont accordées, on vérifie quand même si on a une souscription active
     if (Notification.permission === 'granted') {
-        btn.classList.add('hidden');
-        return;
+        try {
+            const registration = await navigator.serviceWorker.ready;
+            const subscription = await registration.pushManager.getSubscription();
+            if (subscription) {
+                btn.classList.add('hidden');
+                return;
+            }
+            // Si pas de souscription active malgré la permission, on laisse le bouton pour qu'il puisse se réabonner
+        } catch (e) {
+            console.warn('Erreur check subscription status:', e);
+        }
     }
 
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
@@ -4306,6 +4323,32 @@ async function notifyOpponentOfNewGame(opponentName) {
         
     } catch (e) {
         console.error('Erreur lors de l’envoi du Push:', e);
+    }
+}
+
+async function syncPushSubscription() {
+    if (!supabaseClient || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    if (Notification.permission !== 'granted') return;
+
+    try {
+        const registration = await navigator.serviceWorker.ready;
+        const subscription = await registration.pushManager.getSubscription();
+        
+        if (subscription) {
+            const { data: userData } = await supabaseClient.auth.getUser();
+            if (userData?.user) {
+                await supabaseClient
+                    .from('profiles')
+                    .upsert({ 
+                        id: userData.user.id, 
+                        username: myName,
+                        push_subscription: JSON.stringify(subscription) 
+                    }, { onConflict: 'id' });
+                console.log('Push subscription synchronisée avec Supabase');
+            }
+        }
+    } catch (e) {
+        console.warn('Erreur syncPushSubscription:', e);
     }
 }
 
