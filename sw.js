@@ -43,15 +43,21 @@ self.addEventListener('push', function (event) {
     .matchAll({ type: 'window', includeUncontrolled: true })
     .then(function (clientList) {
 
-      // Chercher tout client /Chess/ (pas seulement visible)
-      // Sur iOS PWA, visibilityState n'est pas toujours fiable
-      const anyChessClient = clientList.find(function (c) {
-        return c.url.includes('/Chess/');
+      // Sur iOS PWA, clients.matchAll() ne retourne rien quand l'app est
+      // en arrière-plan ou minimisée. On ne peut donc PAS se fier à
+      // clientList.length > 0 pour supprimer la notification.
+      // Stratégie : on cherche un client FOCUSED (vraiment actif au premier plan).
+      const focusedChessClient = clientList.find(function (c) {
+        return (
+          c.url.includes('/Chess/') &&
+          c.visibilityState === 'visible' &&
+          c.focused === true
+        );
       });
 
-      if (anyChessClient) {
-        // L'app est ouverte — envoyer un message au lieu d'une notification OS
-        anyChessClient.postMessage({
+      if (focusedChessClient) {
+        // L'utilisateur regarde l'app → pas de notification OS
+        focusedChessClient.postMessage({
           type: 'PUSH_RECEIVED',
           data: data
         });

@@ -76,10 +76,14 @@ let sourceSquare = null;
 // Audio assets
 const AUDIO_FILES = {
     move: 'sound/move-self.mp3',
-    capture: 'sound/capture.mp3'
+    capture: 'sound/capture.mp3',
+    gameOver: 'sound/faaah.mp3',
+    check: 'sound/echec.mp3'
 };
 const SOUNDS = {};
 let audioCtx = null;
+let checkSoundSource = null;
+let checkSoundGain = null;
 
 async function loadSounds() {
     try {
@@ -117,6 +121,44 @@ function playSound(name) {
     } catch (e) {
         console.warn('Erreur lecture son:', e);
     }
+}
+
+function startCheckSound() {
+    if (!audioCtx || !SOUNDS.check) return;
+    if (checkSoundSource) return; // already playing
+    if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+
+    try {
+        const gain = audioCtx.createGain();
+        gain.gain.setValueAtTime(0, audioCtx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.15, audioCtx.currentTime + 0.5);
+        gain.connect(audioCtx.destination);
+
+        const source = audioCtx.createBufferSource();
+        source.buffer = SOUNDS.check;
+        source.loop = true;
+        source.connect(gain);
+        source.start(0);
+
+        checkSoundSource = source;
+        checkSoundGain = gain;
+    } catch (e) {
+        console.warn('Erreur check sound:', e);
+    }
+}
+
+function stopCheckSound() {
+    if (!checkSoundGain || !checkSoundSource) return;
+    try {
+        const now = audioCtx.currentTime;
+        checkSoundGain.gain.cancelScheduledValues(now);
+        checkSoundGain.gain.setValueAtTime(checkSoundGain.gain.value, now);
+        checkSoundGain.gain.linearRampToValueAtTime(0, now + 0.4);
+        const src = checkSoundSource;
+        setTimeout(() => { try { src.stop(); } catch (e) {} }, 450);
+    } catch (e) {}
+    checkSoundSource = null;
+    checkSoundGain = null;
 }
 
 // History Navigation
@@ -542,7 +584,7 @@ function openSettings() {
 
 function openHistoryModal() {
     settingsDropdown.classList.remove('active');
-    document.getElementById('history-modal').classList.remove('hidden');
+    openGameHistory();
 }
 
 function openNewGameModal() {
@@ -790,7 +832,7 @@ async function confirmNewGame() {
     blackTimeRemaining = timeControl;
     lastMoveTimestamp = Date.now();
 
-    sessionStorage.removeItem('gameOverShown');
+    clearGameOverFlags();
 
     if (gameMode === 'duo') {
         clearSoloState();
@@ -947,6 +989,10 @@ async function makeBotMove() {
         isBotThinking = false;
         updateStatus();
         saveSoloState();
+        // Exécuter un premove en attente après le coup du bot
+        if (game.turn() === myColor && !game.game_over()) {
+            await tryExecutePremove();
+        }
     }
 }
 
@@ -994,7 +1040,7 @@ function switchToDuo() {
     clearSoloState();
     updateModeBadge();
     updateOpponentName();
-    sessionStorage.removeItem('gameOverShown');
+    clearGameOverFlags();
     game.reset();
     lastMove = null;
     viewIndex = null;
@@ -1075,15 +1121,17 @@ function setupGlobalRealtime() {
                 state.status !== 'resigned' &&
                 state.status !== 'draw';
 
-            // 2. Show invite toast lorsque l'on est sur le menu et qu'une nouvelle partie Duo est créée par l'autre
+            // 2. Show invite toast lorsqu'une nouvelle partie Duo est créée par l'autre
+            // Que l'on soit sur le menu OU en mode solo
             const isOnMenu = mainMenuEl && !mainMenuEl.classList.contains('hidden');
+            const isInSolo = !gameScreen.classList.contains('hidden') && gameMode === 'solo';
 
             // Vérifier si c'est nous qui avons créé la partie :
             // On compare le timestamp stocké localement avec celui de la DB.
             // (Le upsert utilise lastMoveTimestamp, donc les valeurs correspondent.)
             const weCreatedIt = (state.last_move_ts === lastMoveTimestamp);
 
-            if (isNewGame && isOnMenu && !weCreatedIt) {
+            if (isNewGame && (isOnMenu || isInSolo) && !weCreatedIt) {
                 showToastInvite();
             }
 
@@ -1256,11 +1304,11 @@ async function updateGameState(data = {}) {
 
     // Clear victory modal anti-spam flag if a new game is detected
     if (!newFen && !newPgn) {
-        sessionStorage.removeItem('gameOverShown');
+        clearGameOverFlags();
         sessionStorage.removeItem('duoDeletedHandled');
     } else if (newFen && newFen.startsWith('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq')) {
         if (!newPgn || newPgn.trim() === '') {
-            sessionStorage.removeItem('gameOverShown');
+            clearGameOverFlags();
             sessionStorage.removeItem('duoDeletedHandled');
         }
     }
@@ -1356,6 +1404,10 @@ async function updateGameState(data = {}) {
 
     let needsRender = false;
 
+    // Capture game-over state BEFORE loading new state
+    // so we can distinguish "game was already over" from "game just ended"
+    const wasAlreadyGameOver = game.game_over();
+
     // Seulement mettre à jour si on a vraiment recu un nouvel etat
     if (data.fen !== undefined || data.pgn !== undefined) {
         if (!newFen && !newPgn) {
@@ -1408,10 +1460,13 @@ async function updateGameState(data = {}) {
             await animateMove(lastMove.from, lastMove.to);
         }
         renderBoard();
-        updateStatus();
+        
+        // Only suppress modal if the game was already over BEFORE we loaded the new state
+        // If the game just ended (new move caused checkmate), wasAlreadyGameOver is false → show modal
+        updateStatus(wasAlreadyGameOver ? false : true);
 
         if (game.turn() === myColor) {
-            tryExecutePremove();
+            await tryExecutePremove();
         }
     }
 
@@ -1532,7 +1587,7 @@ function renderBoard() {
 
             // 2. Piece
             const piece = activeGame.get(squareName);
-            let pieceDiv = squareDiv.querySelector('.piece');
+            let pieceDiv = squareDiv.querySelector('.piece:not(.piece-dying)');
 
             let displayPiece = piece;
             let isPremoveGhost = false;
@@ -1666,14 +1721,16 @@ function getPieceName(type) {
 
 function onSquareClick(square) {
     if (viewIndex !== null) return;
-    if (isBotThinking) return;
     if (sessionStorage.getItem('gameOverShown') === 'true') return;
 
+    // Allow premoves even when bot is thinking
     if (game.turn() !== myColor) {
-        if (gameMode === 'solo') return;
         handlePremoveClick(square);
         return;
     }
+
+    // Only block direct moves while bot is thinking (for solo mode)
+    if (isBotThinking) return;
 
     const piece = game.get(square);
 
@@ -1778,7 +1835,7 @@ function clearPremove() {
     renderBoard();
 }
 
-function tryExecutePremove() {
+async function tryExecutePremove() {
     if (premoveQueue.length === 0) return;
     if (game.turn() !== myColor) return;
 
@@ -1787,7 +1844,7 @@ function tryExecutePremove() {
     const isLegal = legalMoves.some(m => m.to === pm.to);
 
     if (isLegal) {
-        makeMove(pm.from, pm.to);
+        await makeMove(pm.from, pm.to);
     } else {
         premoveQueue = [];
         renderBoard();
@@ -1801,7 +1858,6 @@ let pointerDragClone = null;
 
 function handlePointerDown(e, square) {
     if (viewIndex !== null || e.button !== 0) return;
-    if (isBotThinking) return;
     if (sessionStorage.getItem('gameOverShown') === 'true') return;
     e.preventDefault();
 
@@ -1809,7 +1865,9 @@ function handlePointerDown(e, square) {
     if (!piece || piece.color !== myColor) return;
 
     const isPremove = game.turn() !== myColor;
-    if (isPremove && gameMode === 'solo') return;
+
+    // Only block drag if bot is thinking AND it's not a premove
+    if (isBotThinking && !isPremove) return;
 
     pointerDragPiece = e.target;
     sourceSquare = square;
@@ -1970,7 +2028,6 @@ let activeTouchPiece = null;
 
 function handleTouchStart(e, square) {
     if (viewIndex !== null) return;
-    if (isBotThinking) return;
     if (sessionStorage.getItem('gameOverShown') === 'true') return;
     e.preventDefault();
     e.stopPropagation();
@@ -1979,7 +2036,10 @@ function handleTouchStart(e, square) {
     if (!piece || piece.color !== myColor) return;
 
     const isPremove = game.turn() !== myColor;
-    if (isPremove && gameMode === 'solo') return;
+
+    // Only block touch if bot is thinking AND it's not a premove
+    if (isBotThinking && !isPremove) return;
+
     sourceSquare = square;
 
     const touch = e.touches[0];
@@ -2069,6 +2129,9 @@ function handleTouchEnd(e) {
 
 function animateMove(from, to) {
     return new Promise(resolve => {
+        // Clean up any leftover dying pieces first
+        document.querySelectorAll('.piece-dying').forEach(el => el.remove());
+
         const fromDiv = document.querySelector(`.square[data-square="${from}"]`);
         const toDiv = document.querySelector(`.square[data-square="${to}"]`);
         if (!fromDiv || !toDiv) { resolve(); return; }
@@ -2076,16 +2139,34 @@ function animateMove(from, to) {
         const pieceDiv = fromDiv.querySelector('.piece');
         if (!pieceDiv) { resolve(); return; }
 
+        // Reset any inline transform before measuring
+        pieceDiv.style.transition = 'none';
+        pieceDiv.style.transform = 'none';
+        void pieceDiv.offsetHeight;
+
+        // Use SQUARE positions (not piece) to avoid interference from active/scale states
         const fromRect = fromDiv.getBoundingClientRect();
         const toRect = toDiv.getBoundingClientRect();
         const dx = toRect.left - fromRect.left;
         const dy = toRect.top - fromRect.top;
 
-        pieceDiv.style.transition = 'transform 0.4s ease-out';
-        pieceDiv.style.transform = `translate(${dx}px, ${dy}px)`;
-        pieceDiv.style.zIndex = '10';
+        // Remove captured piece immediately
+        const capturedPiece = toDiv.querySelector('.piece');
+        if (capturedPiece && capturedPiece !== pieceDiv) {
+            capturedPiece.remove();
+        }
 
+        // Animate
+        pieceDiv.style.zIndex = '10';
+        pieceDiv.style.transform = `translate(0px, 0px)`;
+        void pieceDiv.offsetHeight;
+        pieceDiv.style.transition = 'transform 0.18s ease-out';
+        pieceDiv.style.transform = `translate(${dx}px, ${dy}px)`;
+
+        let resolved = false;
         const finishAnimation = () => {
+            if (resolved) return;
+            resolved = true;
             pieceDiv.style.transition = '';
             pieceDiv.style.transform = '';
             pieceDiv.style.zIndex = '';
@@ -2093,15 +2174,8 @@ function animateMove(from, to) {
             resolve();
         };
 
-        pieceDiv.addEventListener('transitionend', function handler() {
-            pieceDiv.removeEventListener('transitionend', handler);
-            finishAnimation();
-        });
-
-        setTimeout(() => {
-            pieceDiv.removeEventListener('transitionend', finishAnimation);
-            finishAnimation();
-        }, 450);
+        pieceDiv.addEventListener('transitionend', finishAnimation, { once: true });
+        setTimeout(finishAnimation, 250);
     });
 }
 
@@ -2138,10 +2212,19 @@ async function makeMove(from, to, dragEvent = null) {
         if (!dragEvent) {
             await animateMove(from, to);
         } else {
-            lastAnimatedSquare = to;
+            // Remove captured piece immediately on drag drop
+            document.querySelectorAll('.piece-dying').forEach(el => el.remove());
             const toDiv = document.querySelector(`.square[data-square="${to}"]`);
             if (toDiv) {
-                const rect = toDiv.getBoundingClientRect();
+                const capturedPiece = toDiv.querySelector('.piece');
+                if (capturedPiece && move.captured) {
+                    capturedPiece.remove();
+                }
+            }
+            lastAnimatedSquare = to;
+            const toDivSnap = document.querySelector(`.square[data-square="${to}"]`);
+            if (toDivSnap) {
+                const rect = toDivSnap.getBoundingClientRect();
                 const centerX = rect.left + rect.width / 2;
                 const centerY = rect.top + rect.height / 2;
                 let dropX = dragEvent.clientX;
@@ -2223,11 +2306,11 @@ function startTimer() {
         if (currentWhite <= 0) {
             currentWhite = 0;
             clearInterval(timerInterval);
-            showGameOver('Noirs'); // White ran out of time
+            showGameOver('Noirs', { reason: 'timeout' }); // White ran out of time
         } else if (currentBlack <= 0) {
             currentBlack = 0;
             clearInterval(timerInterval);
-            showGameOver('Blancs'); // Black ran out of time
+            showGameOver('Blancs', { reason: 'timeout' }); // Black ran out of time
         }
 
         updateTimerDisplay(currentWhite, currentBlack);
@@ -2276,7 +2359,7 @@ function updateTimerDisplay(currentWhite = null, currentBlack = null) {
     else opponentTimerEl.classList.remove('low-time');
 }
 
-function updateStatus() {
+function updateStatus(showGameOverModal = true) {
     const activeGame = getHistoricalGame(viewIndex);
 
     let status = '';
@@ -2292,10 +2375,12 @@ function updateStatus() {
     if (activeGame.in_checkmate()) {
         const winner = activeGame.turn() === 'w' ? 'Noirs' : 'Blancs';
         status = `Échec et mat ! ${winner} gagnent.`;
-        if (viewIndex === null) showGameOver(winner);
+        stopCheckSound();
+        if (viewIndex === null && showGameOverModal) showGameOver(winner);
     } else if (activeGame.in_draw() || activeGame.in_stalemate() || activeGame.in_threefold_repetition() || activeGame.insufficient_material()) {
         status = 'Match nul !';
-        if (viewIndex === null) showGameOver('draw');
+        stopCheckSound();
+        if (viewIndex === null && showGameOverModal) showGameOver('draw');
     } else {
         if (gameMode === 'solo' && isBotThinking) {
             status = 'Bot réfléchit...';
@@ -2305,7 +2390,9 @@ function updateStatus() {
         if (activeGame.in_check()) {
             status += ' (Échec !)';
             highlightKingInCheck(activeGame);
+            if (viewIndex === null) startCheckSound();
         } else {
+            stopCheckSound();
             // Remove check highlight if not in check
             // renderBoard handles this
         }
@@ -2365,11 +2452,43 @@ const LOSE_MESSAGES = [
     "Mince alors... Bisous pour soigner ça ? 😿"
 ];
 
+/**
+ * Clear all game over flags from storage when starting a new game.
+ * Removes both legacy sessionStorage flag and all localStorage gameOver_* keys.
+ */
+function clearGameOverFlags() {
+    // Remove legacy sessionStorage flag
+    sessionStorage.removeItem('gameOverShown');
+    
+    // Remove all gameOver_* keys from localStorage
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('gameOver_')) {
+            keysToRemove.push(key);
+        }
+    }
+    keysToRemove.forEach(key => localStorage.removeItem(key));
+}
+
 function showGameOver(winner, context = {}) {
-    if (sessionStorage.getItem('gameOverShown') === 'true') return;
-    sessionStorage.setItem('gameOverShown', 'true');
+    // Prevent showing game over multiple times for the same game (even across page reloads)
+    const currentPgn = game.pgn();
+    const gameOverKey = `gameOver_${gameMode}_${currentPgn}`;
+    if (localStorage.getItem(gameOverKey) === 'true') return;
+    localStorage.setItem(gameOverKey, 'true');
 
     clearPremove();
+
+    // Play game over sound
+    try { playSound('gameOver'); } catch (e) { }
+
+    // Save to game history before clearing
+    const iWon = winner === 'draw' ? null : ((winner === 'Blancs' && myColor === 'w') || (winner === 'Noirs' && myColor === 'b'));
+    let result = 'draw';
+    if (iWon === true) result = 'win';
+    else if (iWon === false) result = 'loss';
+    saveGameToHistory(result, context.reason || null);
 
     // Clear the saved game since the game is over
     clearGameSave(gameMode);
@@ -2412,7 +2531,7 @@ function showGameOver(winner, context = {}) {
  */
 async function replayGame() {
     closeModal('game-over-modal');
-    sessionStorage.removeItem('gameOverShown');
+    clearGameOverFlags();
 
     if (!lastGameParams) {
         // Fallback: return to menu if no params saved
@@ -2752,7 +2871,7 @@ document.addEventListener('visibilitychange', async () => {
         if (gameMode === 'solo') {
             // Re-render board and timers to reflect any elapsed time
             renderBoard();
-            updateStatus();
+            updateStatus(false); // Don't re-show game over modal on return
             startTimer();
             // If it's the bot's turn and no search is in progress, resume
             if (game.turn() !== myColor && !game.game_over() && !isBotThinking) {
@@ -2830,6 +2949,63 @@ async function sendChatMessage() {
     }
 }
 
+// --- Chat Image Handling ---
+
+function handleChatImage(input) {
+    const file = input.files[0];
+    if (!file) return;
+
+    // Reset input so user can pick same file again
+    input.value = '';
+
+    // Max 2MB raw check
+    if (file.size > 5 * 1024 * 1024) {
+        alert('Image trop lourde (max 5 Mo)');
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = function (e) {
+        const img = new Image();
+        img.onload = function () {
+            // Compress: max 600px, JPEG quality 0.5
+            const maxDim = 600;
+            let w = img.width, h = img.height;
+            if (w > maxDim || h > maxDim) {
+                if (w > h) { h = Math.round(h * maxDim / w); w = maxDim; }
+                else { w = Math.round(w * maxDim / h); h = maxDim; }
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, w, h);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.5);
+            sendChatImage(dataUrl);
+        };
+        img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+async function sendChatImage(dataUrl) {
+    if (!supabaseClient) return;
+
+    try {
+        await supabaseClient
+            .from('chess_chat')
+            .insert([
+                {
+                    game_id: GAME_ID,
+                    sender: myName,
+                    message: '[IMG]' + dataUrl
+                }
+            ]);
+    } catch (error) {
+        console.error('Erreur envoi image:', error);
+    }
+}
+
 // Allow Enter key to send
 document.getElementById('chat-input').addEventListener('keypress', (e) => {
     if (e.key === 'Enter') sendChatMessage();
@@ -2886,7 +3062,8 @@ function displayMessage(msg, isHistory = false) {
     const isMe = msg.sender === myName;
     const isSystem = msg.sender === 'Système';
     const msgText = msg.message ? msg.message.trim() : '';
-    const emojiOnly = isOnlyEmojis(msgText);
+    const isImage = msgText.startsWith('[IMG]');
+    const emojiOnly = !isImage && isOnlyEmojis(msgText);
 
     if (!isHistory && emojiOnly && !isSystem) {
         showReaction(msg.sender, msgText);
@@ -2896,17 +3073,28 @@ function displayMessage(msg, isHistory = false) {
     if (isSystem) {
         div.className = 'message system';
     } else {
-        div.className = `message ${isMe ? 'me' : 'opponent'}${emojiOnly ? ' emoji-only' : ''}`;
+        let cls = `message ${isMe ? 'me' : 'opponent'}`;
+        if (emojiOnly) cls += ' emoji-only';
+        if (isImage) cls += ' has-image';
+        div.className = cls;
     }
     div.dataset.id = msg.id;
 
     const date = new Date(msg.created_at);
     const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-    div.innerHTML = `
-        <div class="message-content">${escapeHtml(msg.message)}</div>
-        <div class="message-time">${timeStr}</div>
-    `;
+    if (isImage) {
+        const imgSrc = msgText.substring(5); // Remove '[IMG]' prefix
+        div.innerHTML = `
+            <div class="message-content"><img src="${imgSrc}" class="chat-image-msg" alt="Image" onclick="openChatImageFullscreen(this)" loading="lazy"></div>
+            <div class="message-time">${timeStr}</div>
+        `;
+    } else {
+        div.innerHTML = `
+            <div class="message-content">${escapeHtml(msg.message)}</div>
+            <div class="message-time">${timeStr}</div>
+        `;
+    }
 
     container.appendChild(div);
     scrollToBottom();
@@ -2914,6 +3102,24 @@ function displayMessage(msg, isHistory = false) {
     const sidebar = document.getElementById('chat-sidebar');
     if (!isHistory && !sidebar.classList.contains('open') && !isMe) {
         document.getElementById('chat-badge').classList.remove('hidden');
+    }
+
+    // Vibrate on incoming message (mobile haptic feedback)
+    if (!isHistory && !isMe && !isSystem) {
+        try {
+            if (navigator.vibrate) {
+                navigator.vibrate(50); // Android
+            } else if (audioCtx) {
+                // iOS fallback: tiny silent impulse that sometimes triggers a subtle taptic
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                gain.gain.value = 0.001; // nearly silent
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.01);
+            }
+        } catch (e) { /* ignore */ }
     }
 }
 
@@ -2987,6 +3193,18 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+function openChatImageFullscreen(imgEl) {
+    const overlay = document.createElement('div');
+    overlay.className = 'chat-img-overlay';
+    overlay.innerHTML = `<img src="${imgEl.src}" alt="Image">`;
+    overlay.addEventListener('click', () => {
+        overlay.classList.add('closing');
+        setTimeout(() => overlay.remove(), 250);
+    });
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => overlay.classList.add('active'));
 }
 
 function scrollToBottom() {
@@ -3207,6 +3425,7 @@ let menuDuoTime = 5; // Default 5 minutes for duo
 // --- Show / Hide Main Menu ---
 
 function showMainMenu() {
+    stopCheckSound();
     ensureMenuDom();
     setupMenuListeners();
 
@@ -3236,6 +3455,9 @@ function showMainMenu() {
 
     // Check for saved games
     checkSavedGames();
+
+    // Load last match widget
+    loadLastMatch();
 
     // Show menu
     mainMenuEl.classList.remove('hidden');
@@ -3301,6 +3523,21 @@ function toggleCardExpand(card, otherCard) {
         card.classList.add('expanded');
     } else {
         card.classList.remove('expanded');
+    }
+
+    // Fade last-match section when any card is expanded
+    updateLastMatchVisibility();
+}
+
+function updateLastMatchVisibility() {
+    const section = document.getElementById('last-match-section');
+    if (!section || section.classList.contains('hidden')) return;
+    const anyExpanded = (soloCard && soloCard.classList.contains('expanded')) ||
+                        (duoCard && duoCard.classList.contains('expanded'));
+    if (anyExpanded) {
+        section.classList.add('fade-out');
+    } else {
+        section.classList.remove('fade-out');
     }
 }
 
@@ -3452,7 +3689,7 @@ function setupMenuListeners() {
             startTimer();
             updateModeBadge();
             updateOpponentName();
-            sessionStorage.removeItem('gameOverShown');
+            clearGameOverFlags();
             saveGameState();
 
             if (game.turn() !== myColor) {
@@ -3563,7 +3800,7 @@ async function startNewDuoGame() {
     lastMove = null;
     viewIndex = null;
     isBotThinking = false;
-    sessionStorage.removeItem('gameOverShown');
+    clearGameOverFlags();
 
     myColor = (whitePlayerName === myName) ? 'w' : 'b';
     boardFlipped = (myColor === 'b');
@@ -3853,8 +4090,12 @@ async function checkSavedGames() {
     if (toggle && !toggle._toggleBound) {
         toggle._toggleBound = true;
         toggle.addEventListener('click', () => {
-            const isCollapsed = list.style.display === 'none';
-            list.style.display = isCollapsed ? '' : 'none';
+            const isCollapsed = list.classList.contains('collapsed');
+            if (isCollapsed) {
+                list.classList.remove('collapsed');
+            } else {
+                list.classList.add('collapsed');
+            }
             if (chevron) {
                 chevron.classList.toggle('collapsed', !isCollapsed);
             }
@@ -4049,7 +4290,7 @@ function resumeGame(key) {
         isBotThinking = false;
         lastMove = null;
         viewIndex = null;
-        sessionStorage.removeItem('gameOverShown');
+        clearGameOverFlags();
 
         // Save params for replay
         lastGameParams = { mode: 'duo', color: 'white', time: 5 };
@@ -4112,7 +4353,7 @@ function resumeGame(key) {
     updateModeBadge();
     updateOpponentName();
     startTimer();
-    sessionStorage.removeItem('gameOverShown');
+    clearGameOverFlags();
 
     // Transition to game
     transitionMenuToGame(() => {
@@ -4407,6 +4648,640 @@ async function syncPushSubscription() {
         }
     } catch (e) {
         console.warn('Erreur syncPushSubscription:', e);
+    }
+}
+
+// ===================================================================
+// GAME HISTORY SYSTEM — save, fetch, display, replay
+// ===================================================================
+
+let ghCurrentTab = 'solo';
+let ghCache = { solo: null, duo: null };
+
+// --- Save a finished game to Supabase ---
+async function saveGameToHistory(result, reason) {
+    if (!supabaseClient) {
+        console.warn('saveGameToHistory: supabaseClient non disponible');
+        return;
+    }
+
+    // For duo mode, only the WHITE player saves to avoid duplicate entries
+    if (gameMode === 'duo' && myColor !== 'w') {
+        console.log('saveGameToHistory: duo mode, not white player — skipping (white player saves)');
+        return;
+    }
+
+    try {
+        const pgn = game.pgn();
+        const fen = game.fen();
+        const moves = game.history();
+        const opponentName = myName === 'Benji' ? 'Sanaa' : 'Benji';
+
+        // Check if this game was already saved (prevent duplicates on page reload)
+        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const { data: existing, error: checkError } = await supabaseClient
+            .from('game_history')
+            .select('id')
+            .eq('pgn', pgn)
+            .gte('played_at', twentyFourHoursAgo)
+            .limit(1);
+
+        if (checkError) {
+            console.warn('saveGameToHistory: check error', checkError);
+        } else if (existing && existing.length > 0) {
+            console.log('saveGameToHistory: game already saved, skipping duplicate');
+            return;
+        }
+
+        const record = {
+            player: myName,
+            opponent: gameMode === 'solo' ? `Bot (${botEloOverride || getEloForDifficulty(botDifficulty)})` : opponentName,
+            mode: gameMode,
+            result: result,
+            reason: reason || null,
+            pgn: pgn,
+            final_fen: fen,
+            my_color: myColor,
+            move_count: moves.length,
+            time_control: timeControl,
+            bot_elo: gameMode === 'solo' ? (botEloOverride || getEloForDifficulty(botDifficulty)) : null,
+            played_at: new Date().toISOString()
+        };
+
+        console.log('saveGameToHistory: inserting', record.mode, record.result);
+        const { data, error } = await supabaseClient.from('game_history').insert(record).select();
+        if (error) {
+            console.error('saveGameToHistory Supabase error:', error);
+        } else {
+            console.log('saveGameToHistory: saved successfully, id:', data?.[0]?.id);
+        }
+        // Invalidate cache
+        ghCache[gameMode] = null;
+    } catch (e) {
+        console.error('saveGameToHistory exception:', e);
+    }
+}
+
+function getEloForDifficulty(diff) {
+    const map = { 1: 400, 2: 600, 3: 800, 4: 1500, 5: 2500 };
+    return map[diff] || 800;
+}
+
+// --- Open History Modal ---
+function openGameHistory() {
+    // Close dropdown if open
+    if (typeof settingsDropdown !== 'undefined' && settingsDropdown) {
+        settingsDropdown.classList.remove('active');
+    }
+    openModal('game-history-modal');
+    loadHistoryTab(ghCurrentTab);
+}
+
+function switchHistoryTab(tab) {
+    ghCurrentTab = tab;
+    document.querySelectorAll('.gh-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.tab === tab);
+    });
+    loadHistoryTab(tab);
+}
+
+async function loadHistoryTab(tab) {
+    const container = document.getElementById('gh-games-container');
+    container.innerHTML = '<div class="gh-loading">Chargement...</div>';
+
+    // Use cache if available
+    if (ghCache[tab]) {
+        renderHistoryGames(ghCache[tab], tab);
+        return;
+    }
+
+    if (!supabaseClient) {
+        container.innerHTML = '<div class="gh-empty">Supabase non connecté</div>';
+        return;
+    }
+
+    try {
+        let query;
+        if (tab === 'duo') {
+            // Duo: query ALL duo games (single record per game, saved by white player)
+            query = supabaseClient
+                .from('game_history')
+                .select('*')
+                .eq('mode', 'duo')
+                .order('played_at', { ascending: false })
+                .limit(50);
+        } else {
+            // Solo: only this player's games
+            query = supabaseClient
+                .from('game_history')
+                .select('*')
+                .eq('player', myName)
+                .eq('mode', 'solo')
+                .order('played_at', { ascending: false })
+                .limit(50);
+        }
+
+        const { data, error } = await query;
+        if (error) throw error;
+
+        ghCache[tab] = data || [];
+        renderHistoryGames(ghCache[tab], tab);
+    } catch (e) {
+        console.warn('Erreur loadHistoryTab:', e);
+        container.innerHTML = '<div class="gh-empty">Erreur de chargement</div>';
+    }
+}
+
+function renderHistoryGames(games, tab) {
+    const container = document.getElementById('gh-games-container');
+
+    if (!games || games.length === 0) {
+        container.innerHTML = `
+            <div class="gh-empty">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <circle cx="12" cy="12" r="10"/>
+                    <path d="M12 6v6l4 2"/>
+                </svg>
+                Aucune partie ${tab === 'solo' ? 'solo' : 'duo'} jouée
+            </div>`;
+        return;
+    }
+
+    container.innerHTML = '';
+
+    games.forEach((g, index) => {
+        const card = document.createElement('div');
+        card.className = 'gh-game-card';
+        card.onclick = () => openReplay(g);
+
+        // Build mini board from final FEN
+        const miniBoard = buildMiniBoard(g.final_fen);
+
+        // For duo games: adapt result/opponent/color to the viewer's perspective
+        const isFlipped = tab === 'duo' && g.player !== myName;
+        let displayResult = g.result;
+        if (isFlipped) {
+            if (g.result === 'win') displayResult = 'loss';
+            else if (g.result === 'loss') displayResult = 'win';
+        }
+        const displayOpponent = isFlipped ? g.player : g.opponent;
+        const displayColor = isFlipped ? (g.my_color === 'w' ? 'b' : 'w') : g.my_color;
+
+        // Result badge
+        const badgeClass = displayResult === 'win' ? 'win' : displayResult === 'loss' ? 'loss' : 'draw';
+        const badgeText = displayResult === 'win' ? 'Victoire' : displayResult === 'loss' ? 'Défaite' : 'Nul';
+
+        // Meta info
+        const date = new Date(g.played_at);
+        const dateStr = formatHistoryDate(date);
+        const movesStr = `${Math.ceil(g.move_count / 2)} coups`;
+
+        let reasonStr = '';
+        if (g.reason === 'resign') reasonStr = ' (abandon)';
+        else if (g.reason === 'timeout') reasonStr = ' (temps)';
+
+        card.innerHTML = `
+            ${miniBoard}
+            <div class="gh-game-info">
+                <div class="gh-game-result">
+                    <span class="gh-result-badge ${badgeClass}">${badgeText}${reasonStr}</span>
+                </div>
+                <div class="gh-game-meta">vs ${displayOpponent} · ${dateStr}</div>
+                <div class="gh-game-moves">${movesStr} · ${displayColor === 'w' ? 'Blancs' : 'Noirs'}</div>
+            </div>
+            <div class="gh-game-arrow">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+            </div>
+        `;
+
+        container.appendChild(card);
+    });
+}
+
+function buildMiniBoard(fen) {
+    if (!fen) return '<div class="gh-mini-board"></div>';
+
+    const rows = fen.split(' ')[0].split('/');
+    let html = '<div class="gh-mini-board">';
+
+    for (let r = 0; r < 8; r++) {
+        let col = 0;
+        for (const ch of rows[r]) {
+            if (ch >= '1' && ch <= '8') {
+                for (let i = 0; i < parseInt(ch); i++) {
+                    const isLight = (r + col) % 2 === 0;
+                    html += `<div class="gh-mini-sq ${isLight ? 'light' : 'dark'}"></div>`;
+                    col++;
+                }
+            } else {
+                const isLight = (r + col) % 2 === 0;
+                const color = ch === ch.toUpperCase() ? 'white' : 'black';
+                const pieceMap = { k: 'king', q: 'queen', r: 'rook', b: 'bishop', n: 'knight', p: 'pawn' };
+                const pieceName = pieceMap[ch.toLowerCase()];
+                html += `<div class="gh-mini-sq ${isLight ? 'light' : 'dark'}"><img src="pièces/set1/${color}-${pieceName}.png" alt="${ch}"></div>`;
+                col++;
+            }
+        }
+    }
+
+    html += '</div>';
+    return html;
+}
+
+function formatHistoryDate(date) {
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMin = Math.floor(diffMs / 60000);
+    const diffH = Math.floor(diffMs / 3600000);
+    const diffD = Math.floor(diffMs / 86400000);
+
+    if (diffMin < 2) return "À l'instant";
+    if (diffMin < 60) return `Il y a ${diffMin}min`;
+    if (diffH < 24) return `Il y a ${diffH}h`;
+    if (diffD < 7) return `Il y a ${diffD}j`;
+
+    return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+}
+
+// --- Last Match Widget (on main menu) ---
+
+async function loadLastMatch() {
+    const section = document.getElementById('last-match-section');
+    if (!section) return;
+
+    if (!supabaseClient) {
+        section.classList.add('hidden');
+        return;
+    }
+
+    try {
+        // Query 1: games I saved
+        const { data: myGames } = await supabaseClient
+            .from('game_history')
+            .select('*')
+            .eq('player', myName)
+            .order('played_at', { ascending: false })
+            .limit(1);
+
+        // Query 2: duo games saved by opponent (where I'm the opponent)
+        const { data: duoGames } = await supabaseClient
+            .from('game_history')
+            .select('*')
+            .eq('mode', 'duo')
+            .eq('opponent', myName)
+            .order('played_at', { ascending: false })
+            .limit(1);
+
+        // Pick the most recent between both
+        const allGames = [...(myGames || []), ...(duoGames || [])];
+        if (allGames.length === 0) {
+            section.classList.add('hidden');
+            return;
+        }
+        allGames.sort((a, b) => new Date(b.played_at) - new Date(a.played_at));
+        const g = allGames[0];
+
+        // Determine if we need to flip perspective (duo game saved by opponent)
+        const isFlipped = g.mode === 'duo' && g.player !== myName;
+
+        const resultEl = document.getElementById('last-match-result');
+        const dateEl = document.getElementById('last-match-date');
+        const avatar1 = section.querySelector('.lm-avatar-1');
+        const avatar2 = section.querySelector('.lm-avatar-2');
+
+        // Set avatars based on who won / mode
+        if (myName === 'Benji') {
+            avatar1.src = 'images/benji.png';
+            avatar2.src = g.mode === 'solo' ? 'images/benji_robot.png' : 'images/sanaa.jpg';
+        } else {
+            avatar1.src = 'images/sanaa.jpg';
+            avatar2.src = g.mode === 'solo' ? 'images/benji_robot.png' : 'images/benji.png';
+        }
+
+        // Adapt result for viewer
+        let displayResult = g.result;
+        if (isFlipped) {
+            if (g.result === 'win') displayResult = 'loss';
+            else if (g.result === 'loss') displayResult = 'win';
+        }
+        const displayOpponent = isFlipped ? g.player : g.opponent;
+
+        // Result text (compact)
+        let resultText = '';
+        if (displayResult === 'win') {
+            resultText = `Win vs ${displayOpponent}`;
+        } else if (displayResult === 'loss') {
+            resultText = `Loss vs ${displayOpponent}`;
+        } else {
+            resultText = `Draw vs ${displayOpponent}`;
+        }
+        resultEl.textContent = resultText;
+
+        // Date
+        dateEl.textContent = formatHistoryDate(new Date(g.played_at));
+
+        section.classList.remove('hidden');
+        // Trigger entrance animation after a short delay
+        section.classList.remove('visible');
+        requestAnimationFrame(() => {
+            setTimeout(() => section.classList.add('visible'), 50);
+        });
+    } catch (e) {
+        console.warn('loadLastMatch error:', e);
+        section.classList.add('hidden');
+    }
+}
+
+// ===================================================================
+// REPLAY SYSTEM
+// ===================================================================
+
+let replayGame_data = null;
+let replayMoveIndex = -1; // -1 = initial position
+let replayMoves = [];
+let replayChess = null;
+let replayAutoplayInterval = null;
+let replayIsPlaying = false;
+
+function openReplay(gameData) {
+    replayGame_data = gameData;
+    replayMoveIndex = -1;
+    replayIsPlaying = false;
+    clearInterval(replayAutoplayInterval);
+    replayAutoplayInterval = null;
+
+    // Parse PGN
+    replayChess = new Chess();
+    if (gameData.pgn) {
+        const tempChess = new Chess();
+        tempChess.load_pgn(gameData.pgn);
+        replayMoves = tempChess.history({ verbose: true });
+    } else {
+        replayMoves = [];
+    }
+
+    // Set title
+    const resultText = gameData.result === 'win' ? 'Victoire' : gameData.result === 'loss' ? 'Défaite' : 'Nul';
+    document.getElementById('gr-title-text').textContent = `${resultText} vs ${gameData.opponent}`;
+    const date = new Date(gameData.played_at);
+    document.getElementById('gr-subtitle').textContent = date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+
+    // Setup controls
+    document.getElementById('gr-btn-start').onclick = () => { replayGoTo(-1); };
+    document.getElementById('gr-btn-prev').onclick = () => { replayGoTo(replayMoveIndex - 1, true); };
+    document.getElementById('gr-btn-next').onclick = () => { replayGoTo(replayMoveIndex + 1, true); };
+    document.getElementById('gr-btn-end').onclick = () => { replayGoTo(replayMoves.length - 1); };
+    document.getElementById('gr-btn-play').onclick = toggleAutoplay;
+
+    // Render initial
+    replayChess.reset();
+    renderReplayBoard();
+    updateReplayCounter();
+    updateReplayProgress();
+    updatePlayButtonIcon();
+
+    // Show replay modal (keep history modal open underneath)
+    openModal('game-replay-modal');
+}
+
+function closeReplayModal() {
+    stopAutoplay();
+    closeModal('game-replay-modal');
+}
+
+function replayGoTo(index, animate = false) {
+    if (index < -1) index = -1;
+    if (index >= replayMoves.length) index = replayMoves.length - 1;
+
+    // If going to end during autoplay, stop
+    if (index >= replayMoves.length - 1) {
+        stopAutoplay();
+    }
+
+    const prevIndex = replayMoveIndex;
+    const isSingleStep = (animate || replayIsPlaying) && Math.abs(index - prevIndex) === 1;
+
+    // Rebuild board state up to index
+    replayChess.reset();
+    for (let i = 0; i <= index; i++) {
+        replayChess.move(replayMoves[i].san);
+    }
+    replayMoveIndex = index;
+
+    if (isSingleStep && index > prevIndex) {
+        // Forward one step — animate the piece
+        animateReplayMove(replayMoves[index], false);
+    } else if (isSingleStep && index < prevIndex) {
+        // Backward one step — animate reverse
+        animateReplayMove(replayMoves[prevIndex], true);
+    } else {
+        renderReplayBoard();
+    }
+    updateReplayCounter();
+    updateReplayProgress();
+}
+
+function animateReplayMove(move, isReverse) {
+    const board = document.getElementById('gr-board');
+    const flipped = replayGame_data.my_color === 'b';
+    const boardRect = board.getBoundingClientRect();
+    const sqSize = boardRect.width / 8;
+
+    function squareToGrid(sq) {
+        const file = sq.charCodeAt(0) - 97;
+        const rank = 8 - parseInt(sq[1]);
+        const col = flipped ? (7 - file) : file;
+        const row = flipped ? (7 - rank) : rank;
+        return { row, col };
+    }
+
+    const fromGrid = squareToGrid(isReverse ? move.to : move.from);
+    const toGrid = squareToGrid(isReverse ? move.from : move.to);
+    const fromIdx = fromGrid.row * 8 + fromGrid.col;
+    const toIdx = toGrid.row * 8 + toGrid.col;
+
+    // First render the DESTINATION state (current board after move)
+    renderReplayBoard(true); // silent = skip highlight anim
+
+    // Now find the piece that just arrived at destination and move it back, then animate forward
+    const destSq = board.children[toIdx];
+    const pieceImg = destSq ? destSq.querySelector('img') : null;
+
+    if (!pieceImg) {
+        // Fallback: just render normally
+        renderReplayBoard();
+        return;
+    }
+
+    // Calculate pixel delta (from source to dest)
+    const dx = (fromGrid.col - toGrid.col) * sqSize;
+    const dy = (fromGrid.row - toGrid.row) * sqSize;
+
+    // Place piece at origin position instantly
+    pieceImg.style.transition = 'none';
+    pieceImg.style.transform = `translate(${dx}px, ${dy}px)`;
+    pieceImg.classList.add('gr-piece-moving');
+
+    // Handle captured piece (show it briefly then fade)
+    if (!isReverse && move.captured) {
+        const capturedSq = board.children[toIdx];
+        // We need to show the captured piece fading out
+        // The captured piece was at the destination before the move
+        // Create a temporary captured piece overlay
+        const captColor = move.color === 'w' ? 'black' : 'white';
+        const pieceMap = { k: 'king', q: 'queen', r: 'rook', b: 'bishop', n: 'knight', p: 'pawn' };
+        let capturedPieceName = pieceMap[move.captured];
+        if (capturedPieceName) {
+            const captImg = document.createElement('img');
+            captImg.src = `pièces/set1/${captColor}-${capturedPieceName}.png`;
+            captImg.style.width = '82%';
+            captImg.style.height = '82%';
+            captImg.style.objectFit = 'contain';
+            captImg.style.position = 'absolute';
+            captImg.style.zIndex = '0';
+            captImg.classList.add('gr-piece-captured');
+            capturedSq.appendChild(captImg);
+            setTimeout(() => captImg.remove(), 200);
+        }
+    }
+
+    // Handle castling rook animation
+    if (move.flags && (move.flags.includes('k') || move.flags.includes('q'))) {
+        let rookFrom, rookTo;
+        const rank = move.color === 'w' ? '1' : '8';
+        if (move.flags.includes('k')) {
+            rookFrom = isReverse ? 'f' + rank : 'h' + rank;
+            rookTo = isReverse ? 'h' + rank : 'f' + rank;
+        } else {
+            rookFrom = isReverse ? 'd' + rank : 'a' + rank;
+            rookTo = isReverse ? 'a' + rank : 'd' + rank;
+        }
+        const rookFromGrid = squareToGrid(rookFrom);
+        const rookToGrid = squareToGrid(rookTo);
+        const rookDestIdx = rookToGrid.row * 8 + rookToGrid.col;
+        const rookDestSq = board.children[rookDestIdx];
+        const rookImg = rookDestSq ? rookDestSq.querySelector('img') : null;
+        if (rookImg) {
+            const rookDx = (rookFromGrid.col - rookToGrid.col) * sqSize;
+            const rookDy = (rookFromGrid.row - rookToGrid.row) * sqSize;
+            rookImg.style.transition = 'none';
+            rookImg.style.transform = `translate(${rookDx}px, ${rookDy}px)`;
+            rookImg.classList.add('gr-piece-moving');
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    rookImg.style.transition = 'transform 0.22s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+                    rookImg.style.transform = 'translate(0, 0)';
+                });
+            });
+        }
+    }
+
+    // Trigger the animation to destination
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            pieceImg.style.transition = 'transform 0.22s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+            pieceImg.style.transform = 'translate(0, 0)';
+        });
+    });
+
+    // Clean up after animation
+    setTimeout(() => {
+        pieceImg.classList.remove('gr-piece-moving');
+        pieceImg.style.transition = '';
+        pieceImg.style.transform = '';
+    }, 250);
+}
+
+function renderReplayBoard(silent) {
+    const board = document.getElementById('gr-board');
+    const flipped = replayGame_data.my_color === 'b';
+    let html = '';
+
+    for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+            const row = flipped ? (7 - r) : r;
+            const col = flipped ? (7 - c) : c;
+            const file = String.fromCharCode(97 + col);
+            const rank = 8 - row;
+            const squareName = file + rank;
+            const isLight = (row + col) % 2 === 0;
+
+            let highlight = false;
+            if (replayMoveIndex >= 0 && replayMoveIndex < replayMoves.length) {
+                const move = replayMoves[replayMoveIndex];
+                if (move.from === squareName || move.to === squareName) highlight = true;
+            }
+
+            const piece = replayChess.get(squareName);
+            let pieceHtml = '';
+            if (piece) {
+                const color = piece.color === 'w' ? 'white' : 'black';
+                const pieceMap = { k: 'king', q: 'queen', r: 'rook', b: 'bishop', n: 'knight', p: 'pawn' };
+                pieceHtml = `<img src="pièces/set1/${color}-${pieceMap[piece.type]}.png" alt="${piece.type}">`;
+            }
+
+            html += `<div class="gr-sq ${isLight ? 'light' : 'dark'}${highlight ? ' highlight' : ''}">${pieceHtml}</div>`;
+        }
+    }
+
+    board.innerHTML = html;
+}
+
+function updateReplayProgress() {
+    const bar = document.getElementById('gr-progress-bar');
+    if (!bar) return;
+    const total = replayMoves.length;
+    const pct = total > 0 ? ((replayMoveIndex + 1) / total) * 100 : 0;
+    bar.style.width = pct + '%';
+}
+
+function updateReplayCounter() {
+    const counter = document.getElementById('gr-move-counter');
+    const current = replayMoveIndex + 1;
+    const total = replayMoves.length;
+    counter.textContent = `${current} / ${total}`;
+}
+
+function toggleAutoplay() {
+    if (replayIsPlaying) {
+        stopAutoplay();
+    } else {
+        startAutoplay();
+    }
+}
+
+function startAutoplay() {
+    if (replayMoveIndex >= replayMoves.length - 1) {
+        // Reset to start if at end
+        replayGoTo(-1);
+    }
+    replayIsPlaying = true;
+    updatePlayButtonIcon();
+    replayAutoplayInterval = setInterval(() => {
+        if (replayMoveIndex >= replayMoves.length - 1) {
+            stopAutoplay();
+            return;
+        }
+        replayGoTo(replayMoveIndex + 1, true);
+    }, 900);
+}
+
+function stopAutoplay() {
+    replayIsPlaying = false;
+    clearInterval(replayAutoplayInterval);
+    replayAutoplayInterval = null;
+    updatePlayButtonIcon();
+}
+
+function updatePlayButtonIcon() {
+    const btn = document.getElementById('gr-btn-play');
+    const icon = document.getElementById('gr-play-icon');
+    if (replayIsPlaying) {
+        btn.classList.add('playing');
+        icon.innerHTML = '<rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect>';
+    } else {
+        btn.classList.remove('playing');
+        icon.innerHTML = '<polygon points="5 3 19 12 5 21 5 3"></polygon>';
     }
 }
 
