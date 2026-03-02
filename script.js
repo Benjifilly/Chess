@@ -247,6 +247,9 @@ function initializeApp() {
             const params = new URLSearchParams(window.location.search);
             if (params.get('from') === 'push') {
                 console.log('Retour via notification push');
+                // Nettoyer l'URL pour éviter un re-trigger au refresh
+                const cleanUrl = window.location.pathname;
+                window.history.replaceState({}, '', cleanUrl);
                 if (myName) {
                     resumeGame('duo');
                 }
@@ -3843,6 +3846,20 @@ async function checkSavedGames() {
         const card = createSavedGameCard(key, save, index);
         list.appendChild(card);
     });
+
+    // Setup toggle chevron (only once)
+    const toggle = document.getElementById('saved-games-toggle');
+    const chevron = document.getElementById('saved-games-chevron');
+    if (toggle && !toggle._toggleBound) {
+        toggle._toggleBound = true;
+        toggle.addEventListener('click', () => {
+            const isCollapsed = list.style.display === 'none';
+            list.style.display = isCollapsed ? '' : 'none';
+            if (chevron) {
+                chevron.classList.toggle('collapsed', !isCollapsed);
+            }
+        });
+    }
 }
 
 function migrateLegacySoloSave(saves) {
@@ -4169,12 +4186,18 @@ if ('serviceWorker' in navigator && 'PushManager' in window) {
         .catch(err => console.error('Erreur Service Worker:', err));
 }
 
-// Réception des messages du Service Worker (push reçu en foreground)
+// Réception des messages du Service Worker
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('message', function (event) {
     if (event.data && event.data.type === 'PUSH_RECEIVED') {
-      console.log('[App] Push reçu en foreground:', event.data.data);
-      // Exemple : showInAppBanner(event.data.data.body);
+      console.log('[App] Push reçu en foreground, notification OS supprimée');
+      // App ouverte = pas de notification OS, rien à faire
+    }
+    if (event.data && event.data.type === 'NOTIFICATION_CLICK') {
+      console.log('[App] Clic sur notification push, redirection vers la partie');
+      if (myName) {
+        resumeGame('duo');
+      }
     }
   });
 }

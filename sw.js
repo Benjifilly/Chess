@@ -43,15 +43,15 @@ self.addEventListener('push', function (event) {
     .matchAll({ type: 'window', includeUncontrolled: true })
     .then(function (clientList) {
 
-      const visibleChessClient = clientList.find(function (c) {
-        return (
-          c.url.includes('/Chess/') &&
-          c.visibilityState === 'visible'
-        );
+      // Chercher tout client /Chess/ (pas seulement visible)
+      // Sur iOS PWA, visibilityState n'est pas toujours fiable
+      const anyChessClient = clientList.find(function (c) {
+        return c.url.includes('/Chess/');
       });
 
-      if (visibleChessClient) {
-        visibleChessClient.postMessage({
+      if (anyChessClient) {
+        // L'app est ouverte — envoyer un message au lieu d'une notification OS
+        anyChessClient.postMessage({
           type: 'PUSH_RECEIVED',
           data: data
         });
@@ -75,22 +75,19 @@ self.addEventListener('push', function (event) {
 self.addEventListener('notificationclick', function (event) {
   event.notification.close();
 
-  const targetUrl = (event.notification.data && event.notification.data.url)
-    ? event.notification.data.url
-    : '/Chess/?from=push';
-
   const promiseChain = clients
     .matchAll({ type: 'window', includeUncontrolled: true })
     .then(function (clientList) {
 
       const existing = clientList.find(c => c.url.includes('/Chess/'));
       if (existing) {
-        return existing.focus().then(function (fc) {
-          return fc.navigate(targetUrl);
-        });
+        // Envoyer un message à l'app existante pour rejoindre la partie directement
+        existing.postMessage({ type: 'NOTIFICATION_CLICK', action: 'join_game' });
+        return existing.focus();
       }
 
-      return clients.openWindow(targetUrl);
+      // Pas de client existant — ouvrir l'app avec ?from=push
+      return clients.openWindow('/Chess/?from=push');
     })
     .catch(function (err) {
       console.error('[SW] notificationclick error:', err);

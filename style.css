@@ -2187,6 +2187,21 @@ footer {
     letter-spacing: 1px;
     opacity: 0.5;
     margin: 0 0 12px 4px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+}
+
+.saved-games-chevron {
+    margin-left: auto;
+    font-size: 16px;
+    opacity: 0.5;
+    transition: transform 0.3s ease;
+    display: inline-block;
+}
+
+.saved-games-chevron.collapsed {
+    transform: rotate(-90deg);
 }
 
 .saved-games-list {
