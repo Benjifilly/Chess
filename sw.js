@@ -17,10 +17,10 @@ self.addEventListener('push', function(event) {
             const title = data.title || 'ChessMate';
             const options = {
                 body: data.message || 'Nouvelle notification',
-                icon: data.icon || '/images/logo.png',
-                badge: data.badge || '/images/logo.png',
+                icon: data.icon || 'images/logo.png',
+                badge: data.badge || 'images/logo.png',
                 data: {
-                    url: data.url || '/'
+                    url: data.url || self.registration.scope
                 },
                 vibrate: [100, 50, 100],
                 actions: [
@@ -33,7 +33,10 @@ self.addEventListener('push', function(event) {
             console.log('Service Worker: Push data non-JSON', event.data.text());
             event.waitUntil(self.registration.showNotification('ChessMate', {
                 body: event.data.text(),
-                icon: '/images/logo.png'
+                icon: 'images/logo.png',
+                data: {
+                    url: self.registration.scope
+                }
             }));
         }
     }
@@ -42,18 +45,18 @@ self.addEventListener('push', function(event) {
 self.addEventListener('notificationclick', function(event) {
     event.notification.close();
     
-    let targetUrl = '/';
+    let targetUrl = self.registration.scope;
     if (event.notification.data && event.notification.data.url) {
         targetUrl = event.notification.data.url;
     }
 
     event.waitUntil(
         clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(clientList) {
-            const fullTargetUrl = new URL(targetUrl, self.location.origin).href;
+            const fullTargetUrl = new URL(targetUrl, self.registration.scope).href;
             
             for (let i = 0; i < clientList.length; i++) {
                 const client = clientList[i];
-                if (client.url === fullTargetUrl && 'focus' in client) {
+                if (client.url.startsWith(self.registration.scope) && 'focus' in client) {
                     return client.focus();
                 }
             }

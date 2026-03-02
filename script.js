@@ -4292,7 +4292,7 @@ async function notifyOpponentOfNewGame(opponentName) {
                 subscription: subscription,
                 title: 'Nouvelle partie ChessMate !',
                 message: `${myName} vous invite à une partie Duo. Cliquez pour rejoindre.`,
-                url: '/'
+                url: window.location.href
             },
             headers: {
                 // On envoie la clé anon comme token d'autorisation
