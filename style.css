@@ -1036,7 +1036,7 @@ button#login-btn:hover {
     top: 55px;
     right: 0;
     width: 220px;
-    background: rgba(30, 30, 30, 0.85);
+    background: color-mix(in srgb, var(--card-bg), transparent 30%);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     border-radius: 16px;
@@ -1256,6 +1256,7 @@ header {
 
 footer {
     padding: 15px 15px;
+    padding-bottom: calc(15px + env(safe-area-inset-bottom));
     background: transparent;
     flex-shrink: 0;
 }
@@ -1268,6 +1269,14 @@ footer {
     .chat-input-area {
         height: max-content;
         padding-bottom: calc(15px + env(safe-area-inset-bottom, 0px)) !important;
+    }
+
+    .game-history-content {
+        max-height: 85dvh !important;
+    }
+
+    .game-replay-content {
+        max-height: 95dvh !important;
     }
 }
 
@@ -2515,7 +2524,7 @@ footer {
 }
 
 .menu-mode-card.expanded .menu-card-settings {
-    max-height: 320px;
+    max-height: 420px;
     opacity: 1;
     padding: 0 22px 22px 22px;
     transition: max-height 0.45s cubic-bezier(0.4, 0, 0.2, 1),
@@ -4190,7 +4199,7 @@ footer {
     .game-history-content {
         max-width: calc(100% - 24px) !important;
         width: calc(100% - 24px) !important;
-        max-height: 92dvh;
+        max-height: 95dvh;
         border-radius: 24px !important;
     }
 
@@ -4239,7 +4248,7 @@ footer {
         max-width: calc(100% - 24px) !important;
         width: calc(100% - 24px) !important;
         border-radius: 24px !important;
-        max-height: 92dvh;
+        max-height: 95dvh !important;
     }
 
     .gr-header {
