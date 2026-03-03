@@ -33,6 +33,76 @@ let lastSystemNoticeAt = 0;
 // Track last game params for "Rejouer" (replay with same settings)
 let lastGameParams = null;
 
+// --- RELIABLE MOVE SYNC: retry queue for failed Supabase updates ---
+let pendingMoveSync = null; // Stores the last move payload that failed to sync
+
+/**
+ * Push the current game state to Supabase with automatic retry.
+ * If all retries fail, the payload is stored in `pendingMoveSync`
+ * and will be flushed on the next visibilitychange or next successful move.
+ * @param {Object} payload  - The fields to update in chess_state
+ * @param {number} maxRetries - Number of retry attempts (default 3)
+ */
+async function syncMoveToSupabase(payload, maxRetries = 3) {
+    if (!supabaseClient) return;
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+            const { error } = await supabaseClient
+                .from('chess_state')
+                .update(payload)
+                .eq('id', GAME_ID);
+
+            if (!error) {
+                // Success — clear any pending sync
+                pendingMoveSync = null;
+                return;
+            }
+
+            console.warn(`syncMoveToSupabase attempt ${attempt + 1} failed (API error):`, error.message);
+        } catch (networkErr) {
+            console.warn(`syncMoveToSupabase attempt ${attempt + 1} failed (network):`, networkErr);
+        }
+
+        // Exponential backoff: 300ms, 900ms, 2700ms
+        if (attempt < maxRetries - 1) {
+            await new Promise(r => setTimeout(r, 300 * Math.pow(3, attempt)));
+        }
+    }
+
+    // All retries exhausted — store for later flush
+    console.error('syncMoveToSupabase: all retries failed, queuing for later');
+    pendingMoveSync = payload;
+}
+
+/**
+ * Flush any pending move that failed to sync previously.
+ * Called on visibilitychange and before every new move sync.
+ */
+async function flushPendingSync() {
+    if (!pendingMoveSync || !supabaseClient) return;
+
+    const payload = pendingMoveSync;
+    pendingMoveSync = null; // Clear first to avoid infinite loops
+
+    try {
+        const { error } = await supabaseClient
+            .from('chess_state')
+            .update(payload)
+            .eq('id', GAME_ID);
+
+        if (error) {
+            console.warn('flushPendingSync failed:', error.message);
+            pendingMoveSync = payload; // Re-queue
+        } else {
+            console.log('flushPendingSync: pending move successfully synced');
+        }
+    } catch (e) {
+        console.warn('flushPendingSync network error:', e);
+        pendingMoveSync = payload; // Re-queue
+    }
+}
+
 // Stockfish Web Worker (local engine)
 const stockfish = new Worker('lib/stockfish.js');
 let stockfishResolve = null; // Promise resolver for current move request
@@ -2249,21 +2319,18 @@ async function makeMove(from, to, dragEvent = null) {
         startTimer();
 
         if (gameMode === 'duo' && supabaseClient) {
-            try {
-                await supabaseClient
-                    .from('chess_state')
-                    .update({
-                        fen: game.fen(),
-                        last_move: `${from}-${to}`,
-                        pgn: game.pgn(),
-                        white_time: whiteTimeRemaining,
-                        black_time: blackTimeRemaining,
-                        last_move_ts: lastMoveTimestamp
-                    })
-                    .eq('id', GAME_ID);
-            } catch (error) {
-                console.error('Erreur mise à jour coup:', error);
-            }
+            // Flush any previously failed sync first
+            await flushPendingSync();
+
+            // Send this move with automatic retry
+            await syncMoveToSupabase({
+                fen: game.fen(),
+                last_move: `${from}-${to}`,
+                pgn: game.pgn(),
+                white_time: whiteTimeRemaining,
+                black_time: blackTimeRemaining,
+                last_move_ts: lastMoveTimestamp
+            });
         }
 
         // Save game state after every move (both modes)
@@ -2889,6 +2956,9 @@ document.addEventListener('visibilitychange', async () => {
 
         // --- Duo mode: re-fetch state from Supabase ---
         if (supabaseClient) {
+            // Flush any move that failed to sync while the app was backgrounded
+            await flushPendingSync();
+
             try {
                 const response = await supabaseClient
                     .from('chess_state')
