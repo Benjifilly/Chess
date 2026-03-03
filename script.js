@@ -25,6 +25,7 @@ let gameMode = 'duo';
 let botDifficulty = 1;
 let isBotThinking = false; // Mutex: true while a Stockfish search is in progress
 let duoInitializing = false; // Flag to ignore stale Supabase states during new game init
+let isPageLoadingComplete = false; // Flag to suppress modal display on page reload
 
 // Anti-spam for system notices (leave / etc.)
 let lastSystemNoticeAt = 0;
@@ -1090,9 +1091,13 @@ async function initGame() {
     }
 
     if (data) {
+        // Mark that we're doing initial page load to suppress modal
+        isPageLoadingComplete = false;
         updateGameState(data);
+        isPageLoadingComplete = true; // Mark page load complete after initial state update
     } else {
         console.warn("Aucune donnée trouvée ou erreur Supabase (utilisation du plateau local):", error);
+        isPageLoadingComplete = true;
     }
 
     setupRealtimeSubscription();
@@ -1462,8 +1467,10 @@ async function updateGameState(data = {}) {
         renderBoard();
         
         // Only suppress modal if the game was already over BEFORE we loaded the new state
+        // OR if we're in the middle of page loading (suppress modal on reload)
         // If the game just ended (new move caused checkmate), wasAlreadyGameOver is false → show modal
-        updateStatus(wasAlreadyGameOver ? false : true);
+        const shouldShowModal = (wasAlreadyGameOver || !isPageLoadingComplete) ? false : true;
+        updateStatus(shouldShowModal);
 
         if (game.turn() === myColor) {
             await tryExecutePremove();
