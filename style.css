@@ -3668,7 +3668,7 @@ footer {
     max-width: 720px !important;
     width: 96% !important;
     padding: 0 !important;
-    max-height: 88dvh;
+    max-height: 90dvh;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -4228,7 +4228,7 @@ footer {
 
     .gh-games-container {
         padding: 4px 20px 20px;
-        max-height: 74dvh;
+        max-height: 82dvh;
         gap: 6px;
     }
 
