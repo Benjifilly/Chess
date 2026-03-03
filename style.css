@@ -4262,20 +4262,20 @@ footer {
     }
 
     .gr-board-wrapper {
-        max-width: 320px;
-        padding: 12px 16px 0;
+        max-width: 100%;
+        padding: 16px 16px 0;
     }
 
     .gr-info {
-        padding: 10px 16px 2px;
+        padding: 16px 16px 4px;
     }
 
     .gr-progress-wrap {
-        max-width: 320px;
+        max-width: 100%;
     }
 
     .gr-controls {
-        padding: 10px 16px 20px;
+        padding: 14px 16px 24px;
         gap: 8px;
     }
 
