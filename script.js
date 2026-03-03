@@ -1604,7 +1604,7 @@ function renderBoard() {
             if (displayPiece) {
                 const colorName = displayPiece.color === 'w' ? 'white' : 'black';
                 const typeName = getPieceName(displayPiece.type);
-                const bgImage = `url("pièces/set1/${colorName}-${typeName}.png")`;
+                const bgImage = `url("pièces/default/${colorName}-${typeName}.png")`;
 
                 if (!pieceDiv) {
                     pieceDiv = document.createElement('div');
@@ -2828,7 +2828,7 @@ function updateCapturedPieces(activeGame = game) {
             const typeName = getPieceName(p.type);
             const isStacked = index > 0 && pieces[index - 1].type === p.type;
             const stackClass = isStacked ? 'stacked' : '';
-            return `<div class="captured-piece ${stackClass}" style="background-image: url('pièces/set1/${colorName}-${typeName}.png')"></div>`;
+            return `<div class="captured-piece ${stackClass}" style="background-image: url('pièces/default/${colorName}-${typeName}.png')"></div>`;
         }).join('');
 
         if (advantage > 0) {
@@ -4878,7 +4878,7 @@ function buildMiniBoard(fen) {
                 const color = ch === ch.toUpperCase() ? 'white' : 'black';
                 const pieceMap = { k: 'king', q: 'queen', r: 'rook', b: 'bishop', n: 'knight', p: 'pawn' };
                 const pieceName = pieceMap[ch.toLowerCase()];
-                html += `<div class="gh-mini-sq ${isLight ? 'light' : 'dark'}"><img src="pièces/set1/${color}-${pieceName}.png" alt="${ch}"></div>`;
+                html += `<div class="gh-mini-sq ${isLight ? 'light' : 'dark'}"><img src="pièces/default/${color}-${pieceName}.png" alt="${ch}"></div>`;
                 col++;
             }
         }
@@ -5133,7 +5133,7 @@ function animateReplayMove(move, isReverse) {
         let capturedPieceName = pieceMap[move.captured];
         if (capturedPieceName) {
             const captImg = document.createElement('img');
-            captImg.src = `pièces/set1/${captColor}-${capturedPieceName}.png`;
+            captImg.src = `pièces/default/${captColor}-${capturedPieceName}.png`;
             captImg.style.width = '82%';
             captImg.style.height = '82%';
             captImg.style.objectFit = 'contain';
@@ -5217,7 +5217,7 @@ function renderReplayBoard(silent) {
             if (piece) {
                 const color = piece.color === 'w' ? 'white' : 'black';
                 const pieceMap = { k: 'king', q: 'queen', r: 'rook', b: 'bishop', n: 'knight', p: 'pawn' };
-                pieceHtml = `<img src="pièces/set1/${color}-${pieceMap[piece.type]}.png" alt="${piece.type}">`;
+                pieceHtml = `<img src="pièces/default/${color}-${pieceMap[piece.type]}.png" alt="${piece.type}">`;
             }
 
             html += `<div class="gr-sq ${isLight ? 'light' : 'dark'}${highlight ? ' highlight' : ''}">${pieceHtml}</div>`;
