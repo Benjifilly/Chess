@@ -1276,7 +1276,7 @@ footer {
     }
 
     .game-replay-content {
-        max-height: 95dvh !important;
+        max-height: 88dvh !important;
     }
 }
 
@@ -4248,11 +4248,11 @@ footer {
         max-width: calc(100% - 24px) !important;
         width: calc(100% - 24px) !important;
         border-radius: 24px !important;
-        max-height: 95dvh !important;
+        max-height: 88dvh !important;
     }
 
     .gr-header {
-        padding: 16px 16px 12px;
+        padding: 14px 16px 10px;
     }
 
     .gr-back-btn {
@@ -4262,8 +4262,8 @@ footer {
     }
 
     .gr-board-wrapper {
-        max-width: 100%;
-        padding: 16px 16px 0;
+        max-width: 340px;
+        padding: 12px 16px 0;
     }
 
     .gr-info {
