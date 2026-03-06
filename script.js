@@ -5325,6 +5325,27 @@ function closeReviewScreen() {
     });
 })();
 
+// --- GRAPH TAP: toucher le graphique pour sauter à un coup ---
+(function () {
+    const canvas = document.getElementById('gr-eval-graph');
+    if (!canvas) return;
+
+    function handleGraphTap(clientX) {
+        if (replayEvaluations.length < 2) return;
+        const rect = canvas.getBoundingClientRect();
+        const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+        // replayEvaluations a N+1 entrées ; position 0 = avant tout coup (index -1)
+        const posIdx = Math.round(ratio * (replayEvaluations.length - 1));
+        replayGoTo(posIdx - 1, false);
+    }
+
+    canvas.addEventListener('click', (e) => handleGraphTap(e.clientX));
+    canvas.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        handleGraphTap(e.touches[0].clientX);
+    }, { passive: false });
+})();
+
 // Keyboard & swipe navigation for review screen
 (function () {
     // Keyboard

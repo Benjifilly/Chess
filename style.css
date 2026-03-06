@@ -4183,6 +4183,16 @@ footer {
     min-height: 0;
 }
 
+/* Wrapper barre d'éval + plateau (flex row) */
+.review-board-wrap {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    flex: 1 1 0;
+    min-width: 0;
+    gap: 8px;
+}
+
 .review-eval-bar {
     width: 18px;
     border-radius: 6px;
@@ -4396,29 +4406,41 @@ footer {
         overflow: hidden;
     }
 
+    /* Barre d'éval : visible à gauche du plateau sur mobile */
     .review-eval-bar {
-        display: none;
+        display: flex;
+        flex-direction: column;
+        width: 14px;
+        flex-shrink: 0;
+        border-radius: 5px;
+    }
+
+    /* Board wrap : rangée horizontale (barre + plateau) */
+    .review-board-wrap {
+        width: 100%;
+        flex-shrink: 0;
+        gap: 4px;
     }
 
     /* Board + info bar en haut, sans flex-grow */
     .review-board-col {
-        width: 100%;
-        flex-shrink: 0;
+        flex: 1 1 0;
+        min-width: 0;
         gap: 4px;
         justify-content: flex-start;
     }
 
     .review-board-col .gr-board {
-        width: min(calc(100vw - 12px), calc(100dvh - 230px));
-        height: min(calc(100vw - 12px), calc(100dvh - 230px));
-        max-width: 440px;
-        max-height: 440px;
+        width: min(calc(100vw - 40px), calc(100dvh - 230px));
+        height: min(calc(100vw - 40px), calc(100dvh - 230px));
+        max-width: 430px;
+        max-height: 430px;
     }
 
     .gr-move-info {
         padding: 5px 12px;
         border-radius: 8px;
-        width: min(calc(100vw - 12px), 440px);
+        width: min(calc(100vw - 40px), 430px);
     }
 
     .gr-move-info-cls { font-size: 12px; }
@@ -4495,8 +4517,8 @@ footer {
 /* Petits iPhone (SE, 375-390px) */
 @media (max-width: 390px) {
     .review-board-col .gr-board {
-        width: calc(100vw - 12px);
-        height: calc(100vw - 12px);
+        width: calc(100vw - 40px);
+        height: calc(100vw - 40px);
     }
 
     .gr-ctrl-btn { width: 36px; height: 36px; }
@@ -4509,6 +4531,12 @@ footer {
     .review-body {
         padding: 10px 14px;
         gap: 10px;
+    }
+
+    .review-board-wrap {
+        flex: 1 1 0;
+        min-width: 0;
+        gap: 8px;
     }
 
     /* Sur desktop, tabs cachés, les deux contenus toujours visibles */
@@ -5255,6 +5283,8 @@ footer {
     width: 100%;
     height: 48px;
     display: block;
+    cursor: pointer;
+    touch-action: none; /* évite le scroll sur touchstart */
 }
 
 /* Move List */
