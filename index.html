@@ -455,30 +455,88 @@
         </div>
     </div>
 
-    <!-- Game Replay Modal -->
-    <div id="game-replay-modal" class="modal hidden">
-        <div class="modal-content game-replay-content">
-            <div class="gr-header">
-                <button class="gr-back-btn" onclick="closeReplayModal()">
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                        <polyline points="15 18 9 12 15 6"></polyline>
-                    </svg>
-                </button>
-                <div class="gr-title">
-                    <h3 id="gr-title-text">Replay</h3>
-                    <span id="gr-subtitle" class="gr-subtitle"></span>
+    <!-- Review Screen (Full-screen, replaces old modal) -->
+    <div id="review-screen">
+        <header class="review-header">
+            <button class="review-back-btn" onclick="closeReviewScreen()">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="15 18 9 12 15 6"></polyline>
+                </svg>
+            </button>
+            <div class="review-title">
+                <h3 id="gr-title-text">Replay</h3>
+                <span id="gr-subtitle" class="review-subtitle"></span>
+            </div>
+            <div class="review-accuracy-header">
+                <div class="review-acc-item">
+                    <span class="review-acc-dot" style="background:#f0f0f0"></span>
+                    <span id="gr-acc-white" class="review-acc-val">—</span>
+                </div>
+                <span class="review-acc-label">Accuracy</span>
+                <div class="review-acc-item">
+                    <span id="gr-acc-black" class="review-acc-val">—</span>
+                    <span class="review-acc-dot" style="background:#1a1a1a"></span>
                 </div>
             </div>
-            <div class="gr-board-wrapper">
+        </header>
+
+        <div class="review-body">
+            <!-- Left: Eval Bar -->
+            <div id="gr-eval-bar" class="review-eval-bar" style="--eval-pct:50%">
+                <div class="eval-bar-black-part"></div>
+                <div class="eval-bar-white-part"></div>
+                <div class="eval-label gr-eval-label-top"></div>
+                <div class="eval-label gr-eval-label-bottom"></div>
+            </div>
+
+            <!-- Center: Board -->
+            <div class="review-board-col">
                 <div id="gr-board" class="gr-board"></div>
-            </div>
-            <div class="gr-info">
-                <div class="gr-progress-wrap">
-                    <div id="gr-progress-bar" class="gr-progress-bar" style="width:0%"></div>
+                <!-- Current move info bar -->
+                <div id="gr-move-info" class="gr-move-info hidden">
+                    <div class="gr-move-info-cls">
+                        <span id="gr-info-icon" class="gr-info-icon"></span>
+                        <span id="gr-info-label"></span>
+                    </div>
+                    <div class="gr-move-info-best hidden" id="gr-info-best">
+                        <span class="gr-info-best-label">Meilleur</span>
+                        <span id="gr-info-best-san" class="gr-info-best-san"></span>
+                    </div>
                 </div>
-                <span id="gr-move-counter" class="gr-move-counter">0 / 0</span>
             </div>
-            <div class="gr-controls">
+
+            <!-- Right: Panel (desktop) / Below (mobile) -->
+            <div class="review-panel">
+                <!-- Tab nav — visible uniquement sur mobile -->
+                <div class="gr-panel-tabs">
+                    <button class="gr-tab active" data-tab="moves">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+                        Coups
+                    </button>
+                    <button class="gr-tab" data-tab="graph">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"/></svg>
+                        Graphique
+                    </button>
+                </div>
+                <div class="review-eval-graph-wrap gr-tab-content" data-tab-content="graph">
+                    <canvas id="gr-eval-graph" class="gr-eval-graph"></canvas>
+                </div>
+                <div id="gr-move-list" class="gr-move-list gr-tab-content" data-tab-content="moves"></div>
+                <div id="gr-analysis-loader" class="gr-analysis-loader hidden">
+                    <div class="gr-loader-spinner"></div>
+                    <span>Analyse en cours...</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="review-controls">
+            <div class="review-progress-row">
+                <div class="review-progress-wrap">
+                    <div id="gr-progress-bar" class="review-progress-bar" style="width:0%"></div>
+                </div>
+                <span id="gr-move-counter" class="review-move-counter">0 / 0</span>
+            </div>
+            <div class="review-ctrl-row">
                 <button class="gr-ctrl-btn" id="gr-btn-start" title="Début">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" transform="scale(-1,1) translate(-24,0)"/></svg>
                 </button>
@@ -686,6 +744,13 @@
 
         <div id="board-container">
             <div id="captured-opponent" class="captured-pieces"></div>
+            <!-- --- EVAL BAR --- -->
+            <div id="eval-bar" style="--eval-pct:50%">
+                <div id="eval-bar-black"></div>
+                <div id="eval-bar-white"></div>
+                <div id="eval-label-top" class="eval-label"></div>
+                <div id="eval-label-bottom" class="eval-label"></div>
+            </div>
             <div id="board">
                 <!-- Grid generated by JS -->
             </div>

@@ -1278,6 +1278,23 @@ footer {
     .game-replay-content {
         max-height: 88dvh !important;
     }
+
+    /* PWA: compensate for iOS notch/home-bar on review screen */
+    .review-header {
+        padding-top: calc(10px + env(safe-area-inset-top, 0px)) !important;
+    }
+
+    .review-controls {
+        padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px)) !important;
+    }
+
+    /* On iPhone in standalone mode, tighten the board calc */
+    @media (max-width: 768px) {
+        .review-board-col .gr-board {
+            width: min(calc(100vw - 12px), calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 230px)) !important;
+            height: min(calc(100vw - 12px), calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 230px)) !important;
+        }
+    }
 }
 
 .player-status {
@@ -3938,8 +3955,38 @@ footer {
 }
 
 .gh-game-moves {
-    font-size: 12px;
-    opacity: 0.32;
+    font-size: 13px;
+    opacity: 0.5;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.gh-game-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+}
+
+.gh-analyze-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    background: rgba(136, 176, 75, 0.15);
+    color: var(--accent);
+    border: 1px solid rgba(136, 176, 75, 0.25);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    padding: 0;
+}
+
+.gh-analyze-btn:hover {
+    background: rgba(136, 176, 75, 0.25);
+    transform: scale(1.05);
 }
 
 .gh-game-arrow {
@@ -3954,18 +4001,608 @@ footer {
 }
 
 /* ===================================================================
-   GAME REPLAY MODAL — Complete Redesign
+   REVIEW SCREEN — Full-screen game analysis view
    =================================================================== */
 
-.game-replay-content {
-    max-width: 560px !important;
-    width: 96% !important;
-    padding: 0 !important;
+#review-screen {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 2000;
+    background: var(--bg-color);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(20px) scale(0.98);
+    transition: opacity 0.35s cubic-bezier(0.25, 0.8, 0.25, 1), transform 0.35s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+#review-screen.show {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0) scale(1);
+}
+
+/* Review Board & Squares */
+.gr-board {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    grid-template-rows: repeat(8, 1fr);
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    border-radius: 6px;
+    overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+}
+
+.gr-sq {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: visible;
+}
+
+.gr-sq img {
+    width: 85%;
+    height: 85%;
+    pointer-events: none;
+    position: relative;
+    z-index: 1;
+}
+
+.gr-sq.light { background-color: var(--board-light); color: var(--board-dark); }
+.gr-sq.dark  { background-color: var(--board-dark);  color: var(--board-light); }
+
+/* ---- TO-square highlights (destination — full color) ---- */
+.gr-sq.highlight             { background-color: rgba(255, 215, 0, 0.55); }
+.gr-sq.highlight-brilliant   { background-color: rgba(27,  173, 166, 0.55); }
+.gr-sq.highlight-best        { background-color: rgba(96,  165, 250, 0.55); }
+.gr-sq.highlight-excellent   { background-color: rgba(134, 239, 172, 0.55); }
+.gr-sq.highlight-good        { background-color: rgba(134, 239, 172, 0.45); }
+.gr-sq.highlight-inaccuracy  { background-color: rgba(250, 204,  21, 0.55); }
+.gr-sq.highlight-mistake     { background-color: rgba(251, 146,  60, 0.55); }
+.gr-sq.highlight-blunder     { background-color: rgba(239,  68,  68, 0.60); }
+
+/* ---- FROM-square highlights (origin — softer) ---- */
+.gr-sq.highlight-from             { background-color: rgba(255, 215, 0, 0.30); }
+.gr-sq.highlight-from-brilliant   { background-color: rgba(27,  173, 166, 0.30); }
+.gr-sq.highlight-from-best        { background-color: rgba(96,  165, 250, 0.30); }
+.gr-sq.highlight-from-excellent   { background-color: rgba(134, 239, 172, 0.30); }
+.gr-sq.highlight-from-good        { background-color: rgba(134, 239, 172, 0.25); }
+.gr-sq.highlight-from-inaccuracy  { background-color: rgba(250, 204,  21, 0.30); }
+.gr-sq.highlight-from-mistake     { background-color: rgba(251, 146,  60, 0.30); }
+.gr-sq.highlight-from-blunder     { background-color: rgba(239,  68,  68, 0.35); }
+
+/* ---- Best-move SVG arrow overlay ---- */
+.gr-best-arrow-svg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 8;
+    overflow: visible;
+}
+
+.review-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    padding-top: calc(10px + env(safe-area-inset-top, 0px));
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    border-radius: 0px 0px 24px 24px;
+    flex-shrink: 0;
+}
+
+.review-back-btn {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.08);
+    color: var(--text-color);
+    cursor: pointer;
+    padding: 0;
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.2s;
+}
+
+.review-back-btn:hover {
+    background: rgba(255,255,255,0.12);
+}
+
+.review-title {
+    flex: 1;
+    min-width: 0;
+}
+
+.review-title h3 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.review-subtitle {
+    font-size: 11px;
+    opacity: 0.4;
+}
+
+.review-accuracy-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.review-acc-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.review-acc-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.15);
+}
+
+.review-acc-val {
+    font-size: 15px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.review-acc-label {
+    font-size: 10px;
+    opacity: 0.35;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Body: eval bar + board + panel */
+.review-body {
+    flex: 1;
+    display: flex;
+    align-items: stretch;
+    overflow: hidden;
+    padding: 8px;
+    gap: 8px;
+    min-height: 0;
+}
+
+.review-eval-bar {
+    width: 18px;
+    border-radius: 6px;
+    overflow: hidden;
+    position: relative;
+    flex-shrink: 0;
+    border: 1px solid rgba(255,255,255,0.08);
+}
+
+/* Board column absorbs all remaining space; board inside is centered */
+.review-board-col {
+    flex: 1 1 0;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
-    border-radius: 28px !important;
+    justify-content: center;
+    gap: 6px;
+}
+
+.review-board-col .gr-board {
+    border-radius: 4px;
+    border: 2px solid rgba(255,255,255,0.08);
+    box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+    position: relative; /* needed for SVG arrow overlay */
     overflow: hidden;
+}
+
+/* Move info bar below board */
+.gr-move-info {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    max-width: 100%;
+    padding: 6px 12px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid color-mix(in srgb, var(--info-color, rgba(255,255,255,0.1)) 30%, transparent);
+    gap: 8px;
+    transition: border-color 0.3s, background 0.3s;
+    box-sizing: border-box;
+}
+
+.gr-move-info-cls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.gr-info-icon {
+    font-size: 15px;
+    font-weight: 900;
+    line-height: 1;
+    min-width: 18px;
+    text-align: center;
+}
+
+.gr-move-info-best {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+}
+
+.gr-info-best-label {
+    opacity: 0.45;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+}
+
+.gr-info-best-san {
+    font-weight: 800;
+    font-size: 13px;
+    color: rgba(96, 165, 250, 0.9);
+    font-family: 'Fredoka', sans-serif;
+}
+
+.review-panel {
+    flex: 0 0 220px;
+    width: 220px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    overflow: hidden;
+}
+
+.review-eval-graph-wrap {
+    width: 100%;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.06);
+    background: rgba(0,0,0,0.2);
+    flex-shrink: 0;
+}
+
+/* Controls */
+.review-controls {
+    flex-shrink: 0;
+    padding: 6px 16px;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+.review-progress-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.review-progress-wrap {
+    flex: 1;
+    height: 4px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.review-progress-bar {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 4px;
+    transition: width 0.25s ease;
+}
+
+.review-move-counter {
+    font-size: 11px;
+    font-weight: 600;
+    opacity: 0.5;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.review-ctrl-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+}
+
+/* ---- Classification badge on board square ---- */
+.gr-class-icon {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 900;
+    font-family: 'Fredoka', sans-serif;
+    color: #fff;
+    z-index: 15;
+    pointer-events: none;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.6), 0 0 0 1.5px rgba(255,255,255,0.2);
+    line-height: 1;
+    letter-spacing: -0.5px;
+}
+
+/* ─── TABS (onglets mobile) ──────────────────────────────── */
+.gr-panel-tabs {
+    display: none; /* caché sur desktop, affiché sur mobile via @media */
+}
+
+.gr-tab {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px 10px;
+    background: none;
+    border: none;
+    border-bottom: 2px solid rgba(255,255,255,0.08);
+    color: rgba(255,255,255,0.4);
+    font-size: 12px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+    letter-spacing: 0.3px;
+}
+
+.gr-tab.active {
+    color: #fff;
+    border-bottom-color: var(--accent, #6eaedb);
+}
+
+.gr-tab svg { flex-shrink: 0; }
+
+.gr-tab-content.gr-tab-hidden {
+    display: none;
+}
+
+/* --- MOBILE: stack vertically avec tabs --- */
+@media (max-width: 768px) {
+    .review-body {
+        flex-direction: column;
+        align-items: center;
+        padding: 4px 6px 0;
+        gap: 4px;
+        overflow: hidden;
+    }
+
+    .review-eval-bar {
+        display: none;
+    }
+
+    /* Board + info bar en haut, sans flex-grow */
+    .review-board-col {
+        width: 100%;
+        flex-shrink: 0;
+        gap: 4px;
+        justify-content: flex-start;
+    }
+
+    .review-board-col .gr-board {
+        width: min(calc(100vw - 12px), calc(100dvh - 230px));
+        height: min(calc(100vw - 12px), calc(100dvh - 230px));
+        max-width: 440px;
+        max-height: 440px;
+    }
+
+    .gr-move-info {
+        padding: 5px 12px;
+        border-radius: 8px;
+        width: min(calc(100vw - 12px), 440px);
+    }
+
+    .gr-move-info-cls { font-size: 12px; }
+    .gr-info-icon { font-size: 13px; }
+
+    .gr-class-icon {
+        top: 2px;
+        right: 2px;
+        width: 22px;
+        height: 22px;
+        font-size: 9px;
+    }
+
+    /* Panel : colonne, prend tout l'espace restant */
+    .review-panel {
+        width: 100%;
+        max-width: 100%;
+        flex: 1;
+        min-height: 0;
+        flex-direction: column;
+        gap: 0;
+        overflow: hidden;
+    }
+
+    /* Tabs visibles sur mobile */
+    .gr-panel-tabs {
+        display: flex;
+        width: 100%;
+        flex-shrink: 0;
+    }
+
+    /* Masquer le panel non actif */
+    .gr-tab-content.gr-tab-hidden {
+        display: none !important;
+    }
+
+    /* Chaque tab-content remplit l'espace restant */
+    .gr-tab-content {
+        flex: 1;
+        min-height: 0;
+        width: 100%;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .review-eval-graph-wrap {
+        border-radius: 0 0 8px 8px;
+        flex-shrink: 0;
+    }
+
+    .review-panel .gr-move-list {
+        max-height: none;
+        padding: 4px 0;
+    }
+
+    .review-controls {
+        padding: 4px 12px;
+        padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px));
+    }
+
+    .review-progress-row { margin-bottom: 4px; }
+
+    .gr-ctrl-btn {
+        width: 40px;
+        height: 40px;
+    }
+
+    .gr-play-btn {
+        width: 48px;
+        height: 48px;
+    }
+}
+
+/* Petits iPhone (SE, 375-390px) */
+@media (max-width: 390px) {
+    .review-board-col .gr-board {
+        width: calc(100vw - 12px);
+        height: calc(100vw - 12px);
+    }
+
+    .gr-ctrl-btn { width: 36px; height: 36px; }
+    .gr-play-btn { width: 44px; height: 44px; }
+    .review-ctrl-row { gap: 6px; }
+}
+
+/* --- DESKTOP: side-by-side --- */
+@media (min-width: 769px) {
+    .review-body {
+        padding: 10px 14px;
+        gap: 10px;
+    }
+
+    /* Sur desktop, tabs cachés, les deux contenus toujours visibles */
+    .gr-panel-tabs { display: none !important; }
+    .gr-tab-content { display: flex !important; flex-direction: column; }
+
+    /* Reset graph-wrap sur desktop */
+    .review-eval-graph-wrap {
+        flex-shrink: 0;
+        flex: 0 0 auto;
+    }
+    .review-eval-graph-wrap .gr-eval-graph {
+        height: 48px !important;
+    }
+
+    /* Board takes up all remaining col space; size constrained by aspect ratio */
+    .review-board-col .gr-board {
+        width: min(calc(100vw - 340px), calc(100dvh - 170px));
+        height: min(calc(100vw - 340px), calc(100dvh - 170px));
+        max-width: 580px;
+        max-height: 580px;
+        border-radius: 6px;
+    }
+
+    .gr-move-info {
+        width: min(calc(100vw - 340px), 580px);
+        max-width: 580px;
+    }
+
+    .review-panel {
+        flex: 0 0 220px;
+        width: 220px;
+        min-width: 0;
+        overflow: hidden;
+    }
+
+    .review-panel .gr-move-list {
+        flex: 1;
+        max-height: none;
+        overflow-y: auto;
+        min-height: 0;
+        padding: 4px 4px 8px;
+        gap: 2px;
+    }
+
+    /* Sur desktop, cacher le hint "meilleur coup" dans la liste */
+    .review-panel .gr-ml-best-hint {
+        display: none;
+    }
+
+    .review-panel .gr-ml-row {
+        gap: 2px;
+    }
+
+    .review-panel .gr-ml-move {
+        padding: 4px 3px;
+    }
+
+    .review-panel .gr-ml-san {
+        font-size: 12px;
+    }
+
+    .review-panel .gr-ml-number {
+        font-size: 10px;
+        width: 20px;
+    }
+
+    .review-eval-bar {
+        width: 20px;
+        border-radius: 8px;
+    }
+
+    .gr-class-icon {
+        width: 26px;
+        height: 26px;
+        font-size: 11px;
+    }
+}
+
+/* Very large screens: cap board size */
+@media (min-width: 1200px) {
+    .review-board-col .gr-board {
+        width: min(65vh, 600px);
+        height: min(65vh, 600px);
+    }
+    .review-panel { flex: 0 0 240px; width: 240px; }
+
+    /* Assez de place pour réafficher le hint */
+    .review-panel .gr-ml-best-hint {
+        display: inline;
+    }
+    .review-panel .gr-ml-move {
+        gap: 4px;
+    }
 }
 
 .gr-header {
@@ -4029,54 +4666,7 @@ footer {
     opacity: 0.4;
 }
 
-.gr-board-wrapper {
-    width: 100%;
-    max-width: 420px;
-    aspect-ratio: 1;
-    margin: 0 auto;
-    padding: 16px 24px 0;
-}
-
-.gr-board {
-    width: 100%;
-    height: 100%;
-    display: grid;
-    grid-template-columns: repeat(8, 1fr);
-    grid-template-rows: repeat(8, 1fr);
-    border-radius: 12px;
-    overflow: hidden;
-    border: 2px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-    position: relative;
-}
-
-.gr-sq {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    position: relative;
-    overflow: visible;
-}
-
-.gr-sq.light { background: var(--board-light); }
-.gr-sq.dark { background: var(--board-dark); }
-
-.gr-sq.highlight { background: rgba(255, 255, 0, 0.3); }
-.gr-sq.light.highlight { background: #f7f769; }
-.gr-sq.dark.highlight { background: #baca2b; }
-
-.gr-sq img {
-    width: 82%;
-    height: 82%;
-    object-fit: contain;
-    position: relative;
-    z-index: 1;
-    pointer-events: none;
-}
-
-/* Piece animation classes */
+/* Piece animation classes (for animated moves) */
 .gr-sq img.gr-piece-moving {
     z-index: 10;
     transition: transform 0.22s cubic-bezier(0.25, 0.46, 0.45, 0.94);
@@ -4424,5 +5014,459 @@ footer {
 
     .gr-move-counter {
         font-size: 16px;
+    }
+}
+
+/* ===================================================================
+   EVAL BAR — In-game vertical bar (left of board)
+   =================================================================== */
+
+/* --- EVAL BAR --- */
+#eval-bar {
+    width: 18px;
+    height: 100%;
+    border-radius: 6px;
+    overflow: hidden;
+    position: relative;
+    flex-shrink: 0;
+    border: 1px solid rgba(255,255,255,0.08);
+    z-index: 1;
+}
+
+#eval-bar-black {
+    background: #1a1a1a;
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: var(--eval-pct, 50%);
+    transition: height 0.5s ease;
+}
+
+#eval-bar-white {
+    background: #f0f0f0;
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: calc(100% - var(--eval-pct, 50%));
+    transition: height 0.5s ease;
+}
+
+.eval-label {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 9px;
+    font-weight: 700;
+    font-family: 'Fredoka', sans-serif;
+    z-index: 2;
+    pointer-events: none;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+#eval-label-top {
+    top: 4px;
+    color: #f0f0f0;
+}
+
+#eval-label-bottom {
+    bottom: 4px;
+    color: #1a1a1a;
+}
+
+#board-container {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+#board-container > #eval-bar {
+    position: absolute;
+    left: -26px;
+    top: 0;
+    height: 100%;
+}
+
+@media (max-width: 768px) {
+    #eval-bar { width: 14px; }
+    #board-container > #eval-bar {
+        left: -20px;
+    }
+    .eval-label { font-size: 7px; }
+}
+
+@media (min-width: 1024px) {
+    #eval-bar { width: 22px; border-radius: 8px; }
+    #board-container > #eval-bar {
+        left: -32px;
+    }
+    .eval-label { font-size: 10px; }
+}
+
+/* ===================================================================
+   EVAL BAR — In replay modal
+   =================================================================== */
+
+/* --- GAME REVIEW --- */
+.eval-bar-common {
+    width: 18px;
+    border-radius: 6px;
+    overflow: hidden;
+    position: relative;
+    flex-shrink: 0;
+    border: 1px solid rgba(255,255,255,0.08);
+}
+
+.eval-bar-black-part {
+    background: #1a1a1a;
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: var(--eval-pct, 50%);
+    transition: height 0.5s ease;
+}
+
+.eval-bar-white-part {
+    background: #f0f0f0;
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: calc(100% - var(--eval-pct, 50%));
+    transition: height 0.5s ease;
+}
+
+.gr-eval-label-top {
+    top: 4px;
+    color: #f0f0f0;
+}
+
+.gr-eval-label-bottom {
+    bottom: 4px;
+    color: #1a1a1a;
+}
+
+.gr-board-area {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    width: 100%;
+    max-width: 460px;
+    margin: 0 auto;
+    padding: 16px 24px 0;
+}
+
+.gr-board-area .gr-board-wrapper {
+    flex: 1;
+    max-width: none;
+    padding: 0;
+    position: relative;
+}
+
+.gr-board-area .eval-bar-common {
+    align-self: stretch;
+}
+
+/* Move classification badge */
+.gr-move-classification {
+    position: absolute;
+    top: 8px;
+    right: -40px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+}
+
+.gr-move-classification.visible {
+    opacity: 1;
+}
+
+.gr-class-badge {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 700;
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+
+.gr-class-label {
+    font-size: 9px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+/* Game Summary Header */
+.gr-summary {
+    width: 100%;
+    padding: 12px 24px 0;
+}
+
+.gr-accuracy-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.gr-accuracy-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.gr-accuracy-color {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.15);
+    flex-shrink: 0;
+}
+
+.gr-accuracy-val {
+    font-size: 18px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.gr-accuracy-divider {
+    font-size: 11px;
+    opacity: 0.4;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.gr-eval-graph-wrap {
+    width: 100%;
+    max-width: 100%;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.06);
+    background: rgba(0,0,0,0.2);
+}
+
+.gr-eval-graph {
+    width: 100%;
+    height: 48px;
+    display: block;
+}
+
+/* Move List */
+.gr-move-list {
+    width: 100%;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 4px 4px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    flex: 1;
+    min-height: 0;
+}
+
+/* Une rangée = numéro + coup blanc + coup noir */
+.gr-ml-row {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+}
+
+.gr-move-list::-webkit-scrollbar {
+    width: 3px;
+}
+.gr-move-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+.gr-move-list::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.1);
+    border-radius: 3px;
+}
+
+.gr-ml-number {
+    padding: 0 4px 0 2px;
+    opacity: 0.28;
+    font-size: 11px;
+    font-weight: 500;
+    text-align: right;
+    user-select: none;
+    flex-shrink: 0;
+    width: 22px;
+    line-height: 1;
+}
+
+.gr-ml-move {
+    flex: 1;
+    min-width: 0;
+    padding: 4px 4px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    transition: background 0.15s;
+    user-select: none;
+    overflow: hidden;
+}
+
+.gr-ml-empty {
+    flex: 1;
+    cursor: default;
+}
+
+.gr-ml-move:hover {
+    background: rgba(255,255,255,0.06);
+}
+
+.gr-ml-move.active {
+    background: rgba(136,176,75,0.2);
+    outline: 1px solid rgba(136,176,75,0.5);
+    font-weight: 700;
+}
+
+.gr-ml-san {
+    font-weight: 600;
+    font-size: 12.5px;
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Badge classification within move list */
+.gr-ml-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    font-size: 8px;
+    font-weight: 900;
+    color: #fff;
+    flex-shrink: 0;
+    line-height: 1;
+    letter-spacing: -0.5px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+}
+
+/* Best move hint in move list */
+.gr-ml-best-hint {
+    font-size: 10.5px;
+    font-weight: 700;
+    color: rgba(96, 165, 250, 0.8);
+    flex-shrink: 0;
+    font-family: 'Fredoka', sans-serif;
+    margin-left: 1px;
+    white-space: nowrap;
+}
+
+.gr-ml-move.active .gr-ml-best-hint {
+    color: rgba(147, 197, 253, 0.9);
+}
+
+/* Analysis loader */
+.gr-analysis-loader {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 10px 24px 16px;
+    font-size: 13px;
+    opacity: 0.6;
+    font-weight: 500;
+}
+
+.gr-analysis-loader.hidden {
+    display: none;
+}
+
+.gr-loader-spinner {
+    width: 18px;
+    height: 18px;
+    border: 2px solid rgba(255,255,255,0.15);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: grSpin 0.8s linear infinite;
+}
+
+@keyframes grSpin {
+    to { transform: rotate(360deg); }
+}
+
+/* Analyze button in history cards */
+.gh-analyze-btn {
+    padding: 5px 10px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 600;
+    font-family: 'Fredoka', sans-serif;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.gh-analyze-btn:hover {
+    background: rgba(136,176,75,0.15);
+    border-color: rgba(136,176,75,0.3);
+}
+
+.gh-analyze-btn:active {
+    transform: scale(0.95);
+}
+
+/* Responsive replay adjustments */
+@media (max-width: 480px) {
+    .gr-board-area {
+        padding: 12px 12px 0;
+        gap: 6px;
+    }
+    .eval-bar-common { width: 14px; }
+    .gr-move-classification {
+        right: -32px;
+    }
+    .gr-class-badge { width: 26px; height: 26px; font-size: 12px; }
+    .gr-summary { padding: 10px 16px 0; }
+    .gr-accuracy-val { font-size: 15px; }
+    .gr-move-list {
+        padding: 0 16px 12px;
+        max-height: 120px;
+        font-size: 12px;
+    }
+    .gr-analysis-loader { padding: 8px 16px 12px; }
+    .game-replay-content {
+        max-height: 95dvh !important;
+        overflow-y: auto;
+    }
+}
+
+@media (min-width: 768px) {
+    .eval-bar-common { width: 22px; border-radius: 8px; }
+    .gr-board-area {
+        max-width: 540px;
+        padding: 20px 32px 0;
+    }
+    .gr-move-list {
+        max-height: 200px;
+        padding: 0 32px 20px;
+        font-size: 14px;
+    }
+    .gr-summary { padding: 16px 32px 0; }
+    .game-replay-content {
+        max-height: 92dvh !important;
+        overflow-y: auto;
     }
 }

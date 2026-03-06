@@ -141,6 +141,116 @@ stockfish.onmessage = function (e) {
     // 'info ...', 'option ...', 'id ...', debug lines, etc.
 };
 
+// --- EVAL BAR ---
+const stockfishEval = new Worker('lib/stockfish.js');
+let evalResolve = null;
+let evalReady = false;
+let evalAbortController = null;
+let lastEvalCp = 0;
+let lastEvalMate = null;
+
+stockfishEval.postMessage('uci');
+
+stockfishEval.onmessage = function (e) {
+    const line = typeof e.data === 'string' ? e.data : '';
+    if (!line) return;
+
+    if (line === 'uciok') { evalReady = true; stockfishEval.postMessage('isready'); return; }
+    if (line === 'readyok') return;
+
+    if (line.startsWith('info') && line.includes('score')) {
+        const cpMatch = line.match(/score cp (-?\d+)/);
+        const mateMatch = line.match(/score mate (-?\d+)/);
+        if (evalResolve) {
+            if (mateMatch) evalResolve._lastResult = { cp: null, mate: parseInt(mateMatch[1]) };
+            else if (cpMatch) evalResolve._lastResult = { cp: parseInt(cpMatch[1]), mate: null };
+        }
+        return;
+    }
+
+    if (line.startsWith('bestmove')) {
+        if (evalResolve) {
+            const result = evalResolve._lastResult || { cp: 0, mate: null };
+            evalResolve(result);
+            evalResolve = null;
+        }
+        return;
+    }
+};
+// Keep a reference to the default handler so analysis functions can restore it
+const _stockfishDefaultHandler = stockfishEval.onmessage;
+
+function requestEval(fen) {
+    return new Promise((resolve) => {
+        if (evalResolve) {
+            evalResolve({ cp: 0, mate: null });
+            evalResolve = null;
+            stockfishEval.postMessage('stop');
+        }
+        resolve._lastResult = null;
+        evalResolve = resolve;
+        stockfishEval.postMessage('position fen ' + fen);
+        stockfishEval.postMessage('go depth 14');
+    });
+}
+
+function updateEvalBar(cp, mate, colorToMove, barEl, labelTopEl, labelBottomEl, flipped) {
+    let pct, labelText;
+
+    if (colorToMove === 'b' && cp !== null) cp = -cp;
+    if (colorToMove === 'b' && mate !== null) mate = -mate;
+
+    if (mate !== null) {
+        labelText = 'M' + Math.abs(mate);
+        pct = mate > 0 ? 5 : 95;
+    } else {
+        pct = 50 - (cp / 10);
+        pct = Math.max(3, Math.min(97, pct));
+        const evalVal = cp / 100;
+        labelText = (evalVal > 0 ? '+' : '') + evalVal.toFixed(1);
+    }
+
+    if (flipped) pct = 100 - pct;
+
+    barEl.style.setProperty('--eval-pct', pct + '%');
+
+    if (labelTopEl) {
+        if (pct > 50) {
+            labelTopEl.textContent = mate !== null ? labelText : (flipped ? labelText : labelText);
+            labelBottomEl.textContent = '';
+        } else {
+            labelBottomEl.textContent = mate !== null ? labelText : labelText;
+            labelTopEl.textContent = '';
+        }
+    }
+}
+
+function triggerEvalForPosition(fen, flipped) {
+    const bar = document.getElementById('eval-bar');
+    if (!bar || bar.style.display === 'none') return;
+    const colorToMove = fen.split(' ')[1] || 'w';
+    requestEval(fen).then(result => {
+        lastEvalCp = result.cp;
+        lastEvalMate = result.mate;
+        updateEvalBar(result.cp, result.mate, colorToMove,
+            bar,
+            document.getElementById('eval-label-top'),
+            document.getElementById('eval-label-bottom'),
+            flipped !== undefined ? flipped : boardFlipped
+        );
+    });
+}
+
+function updateEvalBarVisibility() {
+    const bar = document.getElementById('eval-bar');
+    if (!bar) return;
+    if (gameMode === 'duo' && timeControl > 0) {
+        bar.style.display = 'none';
+    } else {
+        bar.style.display = '';
+    }
+}
+
 // Drag Variables
 let sourceSquare = null;
 
@@ -285,6 +395,19 @@ async function navigateHistory(direction) {
     renderBoard();
     updateStatus();
     updateHistoryButtons();
+
+    // --- EVAL BAR ---
+    const evalGame = viewIndex === null ? game : getHistoricalGame(viewIndex);
+    if (evalGame) triggerEvalForPosition(evalGame.fen());
+}
+
+function getHistoricalGame(index) {
+    const tempChess = new Chess();
+    const history = game.history({ verbose: true });
+    for (let i = 0; i <= index && i < history.length; i++) {
+        tempChess.move(history[i].san);
+    }
+    return tempChess;
 }
 
 function updateHistoryButtons() {
@@ -1131,7 +1254,9 @@ async function initGame() {
 
     renderBoard();
     updateStatus();
-    updateModeBadge(); // Ensure dropdown items visibility is correct on first load
+    updateModeBadge();
+    updateEvalBarVisibility();
+    triggerEvalForPosition(game.fen());
 
     if (gameMode === 'solo') {
         console.log('Mode solo détecté, Supabase ignoré');
@@ -2336,6 +2461,9 @@ async function makeMove(from, to, dragEvent = null) {
         // Save game state after every move (both modes)
         saveGameState();
 
+        // --- EVAL BAR ---
+        triggerEvalForPosition(game.fen());
+
         if (gameMode === 'solo' && game.turn() !== myColor && !game.game_over()) {
             makeBotMove();
         }
@@ -2919,6 +3047,8 @@ function updateCapturedPieces(activeGame = game) {
 document.getElementById('flip-btn').addEventListener('click', () => {
     boardFlipped = !boardFlipped;
     renderBoard();
+    // --- EVAL BAR ---
+    triggerEvalForPosition(game.fen());
 });
 
 document.getElementById('reset-btn').addEventListener('click', () => {
@@ -4926,10 +5056,25 @@ function renderHistoryGames(games, tab) {
                 <div class="gh-game-meta">vs ${displayOpponent} · ${dateStr}</div>
                 <div class="gh-game-moves">${movesStr} · ${displayColor === 'w' ? 'Blancs' : 'Noirs'}</div>
             </div>
-            <div class="gh-game-arrow">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+            <div class="gh-game-actions">
+                <button class="gh-analyze-btn" data-game-index="${index}" title="Analyser la partie">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="20" x2="18" y2="10"></line>
+                        <line x1="12" y1="20" x2="12" y2="4"></line>
+                        <line x1="6" y1="20" x2="6" y2="14"></line>
+                    </svg>
+                </button>
+                <div class="gh-game-arrow">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+                </div>
             </div>
         `;
+
+        // --- GAME REVIEW --- Analyze button
+        card.querySelector('.gh-analyze-btn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            openReplay(g, true);
+        });
 
         container.appendChild(card);
     });
@@ -5080,12 +5225,16 @@ let replayChess = null;
 let replayAutoplayInterval = null;
 let replayIsPlaying = false;
 
-function openReplay(gameData) {
+function openReplay(gameData, autoAnalyze = false) {
     replayGame_data = gameData;
     replayMoveIndex = -1;
     replayIsPlaying = false;
     clearInterval(replayAutoplayInterval);
     replayAutoplayInterval = null;
+    replayClassifications = [];
+    replayEvaluations = [];
+    replayBestMoves = [];
+    replayAnalysisDone = false;
 
     // Parse PGN
     replayChess = new Chess();
@@ -5110,6 +5259,14 @@ function openReplay(gameData) {
     document.getElementById('gr-btn-end').onclick = () => { replayGoTo(replayMoves.length - 1); };
     document.getElementById('gr-btn-play').onclick = toggleAutoplay;
 
+    // Reset review UI
+    document.getElementById('gr-acc-white').textContent = '\u2014';
+    document.getElementById('gr-acc-black').textContent = '\u2014';
+    document.getElementById('gr-move-list').innerHTML = '';
+    const grEvalBar = document.getElementById('gr-eval-bar');
+    if (grEvalBar) grEvalBar.style.setProperty('--eval-pct', '50%');
+    clearEvalGraphCanvas();
+
     // Render initial
     replayChess.reset();
     renderReplayBoard();
@@ -5117,20 +5274,108 @@ function openReplay(gameData) {
     updateReplayProgress();
     updatePlayButtonIcon();
 
-    // Show replay modal (keep history modal open underneath)
-    openModal('game-replay-modal');
+    // Close the history modal so it doesn't stay open in the background
+    closeModal('game-history-modal');
+
+    // Show review screen
+    document.getElementById('review-screen').classList.add('show');
+
+    // Réinitialiser les onglets du panel sur "Coups" (mobile)
+    const _rPanel = document.querySelector('.review-panel');
+    if (_rPanel) {
+        _rPanel.querySelectorAll('.gr-tab').forEach(t => {
+            t.classList.toggle('active', t.dataset.tab === 'moves');
+        });
+        _rPanel.querySelectorAll('.gr-tab-content').forEach(c => {
+            c.classList.toggle('gr-tab-hidden', c.dataset.tabContent !== 'moves');
+        });
+    }
+
+    // --- GAME REVIEW --- Launch background analysis
+    if (replayMoves.length > 0) {
+        analyzeFullGame(replayMoves);
+    }
 }
 
-function closeReplayModal() {
+function closeReviewScreen() {
     stopAutoplay();
-    closeModal('game-replay-modal');
+    replayAnalysisCancelled = true;
+    document.getElementById('review-screen').classList.remove('show');
 }
+
+// --- TAB TOGGLE (onglets mobile: Coups / Graphique) ---
+(function () {
+    document.addEventListener('click', (e) => {
+        const tab = e.target.closest('.gr-tab');
+        if (!tab) return;
+        const panel = tab.closest('.review-panel');
+        if (!panel) return;
+        const target = tab.dataset.tab;
+        panel.querySelectorAll('.gr-tab').forEach(t => {
+            t.classList.toggle('active', t.dataset.tab === target);
+        });
+        panel.querySelectorAll('.gr-tab-content').forEach(c => {
+            c.classList.toggle('gr-tab-hidden', c.dataset.tabContent !== target);
+        });
+        // Re-rendre le graphique quand son onglet est activé
+        // (canvas avait width=0 quand il était caché)
+        if (target === 'graph') {
+            requestAnimationFrame(() => renderEvalGraph());
+        }
+    });
+})();
+
+// Keyboard & swipe navigation for review screen
+(function () {
+    // Keyboard
+    document.addEventListener('keydown', (e) => {
+        const rs = document.getElementById('review-screen');
+        if (!rs || !rs.classList.contains('show')) return;
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+            e.preventDefault();
+            replayGoTo(replayMoveIndex + 1, true);
+        } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            replayGoTo(replayMoveIndex - 1, true);
+        } else if (e.key === 'Home') {
+            e.preventDefault();
+            replayGoTo(-1);
+        } else if (e.key === 'End') {
+            e.preventDefault();
+            replayGoTo(replayMoves.length - 1);
+        } else if (e.key === 'Escape') {
+            closeReviewScreen();
+        }
+    });
+
+    // Touch swipe
+    let _swipeTouchX = null;
+    document.addEventListener('touchstart', (e) => {
+        const rs = document.getElementById('review-screen');
+        if (!rs || !rs.classList.contains('show')) return;
+        // Only swipe if touching the board area
+        if (e.target.closest('.review-board-col')) {
+            _swipeTouchX = e.touches[0].clientX;
+        }
+    }, { passive: true });
+
+    document.addEventListener('touchend', (e) => {
+        if (_swipeTouchX === null) return;
+        const diff = e.changedTouches[0].clientX - _swipeTouchX;
+        _swipeTouchX = null;
+        if (Math.abs(diff) < 40) return;
+        if (diff < 0) {
+            replayGoTo(replayMoveIndex + 1, true); // swipe left = next
+        } else {
+            replayGoTo(replayMoveIndex - 1, true); // swipe right = prev
+        }
+    }, { passive: true });
+})();
 
 function replayGoTo(index, animate = false) {
     if (index < -1) index = -1;
     if (index >= replayMoves.length) index = replayMoves.length - 1;
 
-    // If going to end during autoplay, stop
     if (index >= replayMoves.length - 1) {
         stopAutoplay();
     }
@@ -5138,7 +5383,6 @@ function replayGoTo(index, animate = false) {
     const prevIndex = replayMoveIndex;
     const isSingleStep = (animate || replayIsPlaying) && Math.abs(index - prevIndex) === 1;
 
-    // Rebuild board state up to index
     replayChess.reset();
     for (let i = 0; i <= index; i++) {
         replayChess.move(replayMoves[i].san);
@@ -5146,16 +5390,39 @@ function replayGoTo(index, animate = false) {
     replayMoveIndex = index;
 
     if (isSingleStep && index > prevIndex) {
-        // Forward one step — animate the piece
         animateReplayMove(replayMoves[index], false);
     } else if (isSingleStep && index < prevIndex) {
-        // Backward one step — animate reverse
         animateReplayMove(replayMoves[prevIndex], true);
     } else {
         renderReplayBoard();
     }
     updateReplayCounter();
     updateReplayProgress();
+
+    // --- GAME REVIEW --- Eval bar in replay
+    const flipped = replayGame_data && replayGame_data.my_color === 'b';
+    const fen = replayChess.fen();
+    const colorToMove = fen.split(' ')[1] || 'w';
+    const grEvalBar = document.getElementById('gr-eval-bar');
+    if (grEvalBar) {
+        requestEval(fen).then(result => {
+            updateEvalBar(result.cp, result.mate, colorToMove,
+                grEvalBar,
+                grEvalBar.querySelector('.gr-eval-label-top'),
+                grEvalBar.querySelector('.gr-eval-label-bottom'),
+                flipped
+            );
+        });
+    }
+
+    // --- GAME REVIEW --- Highlight active move in list
+    highlightActiveMoveInList(index);
+
+    // --- GAME REVIEW --- Update move info bar
+    updateMoveInfo(index);
+
+    // --- GAME REVIEW --- Update eval graph cursor
+    updateEvalGraphCursor(index);
 }
 
 function animateReplayMove(move, isReverse) {
@@ -5274,6 +5541,15 @@ function renderReplayBoard(silent) {
     const flipped = replayGame_data.my_color === 'b';
     let html = '';
 
+    // Determine current move info
+    const currentMove = (replayMoveIndex >= 0 && replayMoveIndex < replayMoves.length)
+        ? replayMoves[replayMoveIndex] : null;
+    const currentCls = currentMove && replayClassifications[replayMoveIndex]
+        ? replayClassifications[replayMoveIndex] : null;
+    const bestMove = currentMove && replayBestMoves[replayMoveIndex]
+        ? replayBestMoves[replayMoveIndex] : null;
+    const showBestMove = bestMove && currentCls && currentCls !== 'best' && currentCls !== 'brilliant';
+
     for (let r = 0; r < 8; r++) {
         for (let c = 0; c < 8; c++) {
             const row = flipped ? (7 - r) : r;
@@ -5283,10 +5559,19 @@ function renderReplayBoard(silent) {
             const squareName = file + rank;
             const isLight = (row + col) % 2 === 0;
 
-            let highlight = false;
-            if (replayMoveIndex >= 0 && replayMoveIndex < replayMoves.length) {
-                const move = replayMoves[replayMoveIndex];
-                if (move.from === squareName || move.to === squareName) highlight = true;
+            let squareExtraClasses = '';
+            let overlayHtml = '';
+
+            if (currentMove) {
+                const config = currentCls ? CLASSIFICATION_CONFIG[currentCls] : null;
+                if (squareName === currentMove.to) {
+                    squareExtraClasses = currentCls ? `highlight-${currentCls}` : 'highlight';
+                    if (config) {
+                        overlayHtml += `<div class="gr-class-icon" style="background:${config.color}">${config.icon}</div>`;
+                    }
+                } else if (squareName === currentMove.from) {
+                    squareExtraClasses = currentCls ? `highlight-from-${currentCls}` : 'highlight-from';
+                }
             }
 
             const piece = replayChess.get(squareName);
@@ -5297,11 +5582,69 @@ function renderReplayBoard(silent) {
                 pieceHtml = `<img src="pièces/default/${color}-${pieceMap[piece.type]}.png" alt="${piece.type}">`;
             }
 
-            html += `<div class="gr-sq ${isLight ? 'light' : 'dark'}${highlight ? ' highlight' : ''}">${pieceHtml}</div>`;
+            html += `<div class="gr-sq ${isLight ? 'light' : 'dark'}${squareExtraClasses ? ' ' + squareExtraClasses : ''}">${overlayHtml}${pieceHtml}</div>`;
         }
     }
 
     board.innerHTML = html;
+
+    // Draw SVG arrow for best move
+    drawBestMoveArrow(board, bestMove, showBestMove, flipped);
+}
+
+function drawBestMoveArrow(board, bestMove, show, flipped) {
+    // Remove previous arrow
+    const prev = board.querySelector('.gr-best-arrow-svg');
+    if (prev) prev.remove();
+    if (!show || !bestMove) return;
+
+    function squareToColRow(sq) {
+        const file = sq.charCodeAt(0) - 97; // 0–7
+        const rank = parseInt(sq[1]) - 1;    // 0–7
+        const col = flipped ? (7 - file) : file;
+        const row = flipped ? rank : (7 - rank);
+        return { col, row };
+    }
+
+    const from = squareToColRow(bestMove.from);
+    const to   = squareToColRow(bestMove.to);
+
+    // Center coords in percent of board (each square = 12.5%)
+    const sq = 12.5;
+    const x1 = from.col * sq + sq / 2;
+    const y1 = from.row * sq + sq / 2;
+    const x2 = to.col * sq + sq / 2;
+    const y2 = to.row * sq + sq / 2;
+
+    // Shorten line to avoid covering the arrowhead anchor square center
+    const dx = x2 - x1, dy = y2 - y1;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    const nx = dx / len, ny = dy / len;
+    const shrink = 3.5;
+    const ax2 = x2 - nx * shrink;
+    const ay2 = y2 - ny * shrink;
+
+    const markerId = 'gr-arrow-' + Math.random().toString(36).slice(2, 8);
+    const arrowColor = 'rgba(90,190,255,0.90)';
+
+    const arrowSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    arrowSvg.setAttribute('viewBox', '0 0 100 100');
+    arrowSvg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    arrowSvg.classList.add('gr-best-arrow-svg');
+
+    arrowSvg.innerHTML = `
+        <defs>
+            <marker id="${markerId}" markerWidth="4.5" markerHeight="4.5" refX="2.5" refY="2.25" orient="auto" markerUnits="strokeWidth">
+                <path d="M0,0 L4.5,2.25 L0,4.5 Z" fill="${arrowColor}"/>
+            </marker>
+        </defs>
+        <line x1="${x1}" y1="${y1}" x2="${ax2}" y2="${ay2}"
+              stroke="${arrowColor}" stroke-width="2.2"
+              stroke-linecap="round"
+              marker-end="url(#${markerId})"/>
+    `;
+
+    board.appendChild(arrowSvg);
 }
 
 function updateReplayProgress() {
@@ -5362,3 +5705,485 @@ function updatePlayButtonIcon() {
     }
 }
 
+// ===================================================================
+// GAME REVIEW SYSTEM — Classification, Accuracy, Eval Graph
+// ===================================================================
+
+// --- GAME REVIEW ---
+let replayClassifications = [];
+let replayEvaluations = [];
+let replayBestMoves = []; // best engine move per position
+let replayAnalysisDone = false;
+let replayAnalysisCancelled = false;
+
+const _ICON_THUMB = `<svg viewBox="0 0 24 24" fill="currentColor" style="width:12px;height:12px;display:block"><path d="M2 20h2c.55 0 1-.45 1-1v-9c0-.55-.45-1-1-1H2v11zm19.83-7.12c.11-.25.17-.52.17-.8V11c0-1.1-.9-2-2-2h-5.5l.92-4.65c.05-.22.02-.46-.08-.66-.23-.45-.52-.86-.88-1.22L14 2 7.59 8.41C7.21 8.79 7 9.3 7 9.83V19c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3-7.11z"/></svg>`;
+
+const CLASSIFICATION_CONFIG = {
+    brilliant:  { label: 'Brillant',    icon: '!!',         color: '#1bada6' },
+    best:       { label: 'Meilleur',    icon: '★',          color: '#6eaedb' },
+    excellent:  { label: 'Excellent',   icon: '!',          color: '#96bc4b' },
+    good:       { label: 'Bien',        icon: _ICON_THUMB,  color: '#96bc4b' },
+    inaccuracy: { label: 'Imprécision', icon: '?!',         color: '#f0c040' },
+    mistake:    { label: 'Erreur',      icon: '?',          color: '#e58c28' },
+    blunder:    { label: 'Gaffe',       icon: '??',         color: '#ca3431' }
+};
+
+// ─── UN SEUL APPEL MOTEUR PAR POSITION ─────────────────────────────────────
+// MultiPV 2 : retourne les 2 meilleurs coups + scores depuis le côté à jouer
+// Résultat : { bestMove, secondMove, cp, cp2, mate }
+function requestAnalysisPosition(fen) {
+    return new Promise((resolve) => {
+        // Couper toute recherche précédente
+        if (evalResolve) {
+            evalResolve({ cp: 0, mate: null });
+            evalResolve = null;
+            stockfishEval.postMessage('stop');
+        }
+
+        const pvData = {}; // { 1: {cp, mate, move}, 2: {cp, mate, move} }
+
+        stockfishEval.onmessage = function (e) {
+            const line = typeof e.data === 'string' ? e.data : '';
+            if (!line) return;
+
+            if (line.startsWith('info') && line.includes(' pv ') && line.includes('score')) {
+                const pvIdx = parseInt((line.match(/ multipv (\d+)/) || [, '1'])[1]);
+                if (!pvData[pvIdx]) pvData[pvIdx] = { cp: 0, mate: null, move: null };
+                const cpM = line.match(/score cp (-?\d+)/);
+                const matM = line.match(/score mate (-?\d+)/);
+                const pvM  = line.match(/ pv ([a-h][1-8][a-h][1-8][a-z]?)/);
+                if (cpM)  { pvData[pvIdx].cp = parseInt(cpM[1]); pvData[pvIdx].mate = null; }
+                if (matM) { pvData[pvIdx].mate = parseInt(matM[1]);
+                            pvData[pvIdx].cp = pvData[pvIdx].mate > 0 ? 9999 : -9999; }
+                if (pvM)  { pvData[pvIdx].move = pvM[1]; }
+            }
+
+            if (line.startsWith('bestmove')) {
+                stockfishEval.onmessage = _stockfishDefaultHandler;
+                const p1 = pvData[1] || { cp: 0, mate: null, move: null };
+                const p2 = pvData[2] || null;
+                resolve({
+                    bestMove:   p1.move,
+                    secondMove: p2 ? p2.move : null,
+                    cp:         p1.cp,
+                    cp2:        p2 ? p2.cp : null,
+                    mate:       p1.mate
+                });
+            }
+        };
+
+        stockfishEval.postMessage('setoption name MultiPV value 2');
+        stockfishEval.postMessage('setoption name Hash value 64');
+        stockfishEval.postMessage('position fen ' + fen);
+        stockfishEval.postMessage('go depth 20 movetime 200');
+    });
+}
+
+async function analyzeFullGame(moves) {
+    replayAnalysisCancelled = false;
+    const loader    = document.getElementById('gr-analysis-loader');
+    const loaderTxt = loader ? loader.querySelector('span') : null;
+    if (loader) loader.classList.remove('hidden');
+
+    replayClassifications = new Array(moves.length).fill(null);
+    replayEvaluations     = new Array(moves.length + 1).fill(0);
+    replayBestMoves       = new Array(moves.length).fill(null);
+
+    const clamp = v => Math.max(-2000, Math.min(2000, v));
+
+    // ── Construire tous les FENs en une passe ────────────────────────────────
+    const chess = new Chess();
+    const fens  = [chess.fen()]; // fens[i] = position avant le coup i, fens[N] = position finale
+    for (let i = 0; i < moves.length; i++) {
+        chess.move(moves[i].san);
+        fens.push(chess.fen());
+    }
+
+    // ── Analyser chaque position (N+1 appels au lieu de 2N) ──────────────────
+    // fens[i] est évalué → résultat utilisé comme "avant" pour le coup i
+    //                     ET comme "après" pour le coup i-1
+    const results = new Array(fens.length).fill(null);
+
+    for (let i = 0; i < fens.length; i++) {
+        if (replayAnalysisCancelled) break;
+
+        if (loaderTxt) loaderTxt.textContent =
+            `Analyse en cours… ${Math.round(i / fens.length * 100)}%`;
+
+        results[i] = await requestAnalysisPosition(fens[i]);
+        if (replayAnalysisCancelled) break;
+
+        // ── Dès qu'on a results[i], on peut classer le coup i-1 ──────────────
+        if (i > 0) {
+            const mi   = i - 1; // index du coup à classer
+            const fen0 = fens[mi];
+
+            // Côté qui joue le coup mi (extrait du FEN)
+            const colorBefore = fens[mi].split(' ')[1]; // 'w' ou 'b'
+
+            const resBefore = results[i - 1]; // analyse avant le coup
+            const resAfter  = results[i];     // analyse après le coup
+
+            // Score du meilleur coup depuis le point de vue du joueur (avant)
+            const bestCpFromMover = clamp(
+                resBefore.mate !== null
+                    ? (resBefore.mate > 0 ? 9999 : -9999)
+                    : resBefore.cp
+            );
+
+            // Score après le coup : côté adverse à jouer → on négative pour revenir
+            const afterCpOpponentRaw = resAfter.mate !== null
+                ? (resAfter.mate > 0 ? 9999 : -9999)
+                : resAfter.cp;
+            const afterCpOpponent   = clamp(afterCpOpponentRaw);
+            const actualFromMoverPov = -afterCpOpponent;
+
+            const diff = bestCpFromMover - actualFromMoverPov;
+
+            // Coup joué vs meilleur / 2e meilleur moteur
+            const actualUCI   = moves[mi].from + moves[mi].to + (moves[mi].promotion || '');
+            const isTopMove   = resBefore.bestMove   && actualUCI === resBefore.bestMove;
+            const isSecondMove= resBefore.secondMove && actualUCI === resBefore.secondMove;
+
+            // ── Stocker le meilleur coup pour affichage ───────────────────────
+            if (resBefore.bestMove) {
+                const tmp = new Chess(fen0);
+                const bm  = tmp.move({
+                    from: resBefore.bestMove.slice(0, 2),
+                    to:   resBefore.bestMove.slice(2, 4),
+                    promotion: resBefore.bestMove[4] || 'q'
+                });
+                replayBestMoves[mi] = {
+                    uci:  resBefore.bestMove,
+                    san:  bm ? bm.san : resBefore.bestMove,
+                    from: resBefore.bestMove.slice(0, 2),
+                    to:   resBefore.bestMove.slice(2, 4)
+                };
+            }
+
+            // ── Classification ────────────────────────────────────────────────
+            // Scaling contextuel : en position déjà décidée (±400cp+), les petites
+            // erreurs de cp ont moins d'importance → on assouplit les seuils.
+            // scale va de 1.0 (position équilibrée) jusqu'à 2.5 (victoire/défaite nette).
+            const posBalance = Math.abs(bestCpFromMover);
+            const scale = Math.min(2.5, 1 + Math.max(0, posBalance - 400) / 500);
+
+            let cls;
+            if      (isTopMove)                                cls = 'best';      // exact top moteur
+            else if (isSecondMove || diff <= 8  * scale)      cls = 'excellent';
+            else if (diff <= 35  * scale)                     cls = 'good';
+            else if (diff <= 90  * scale)                     cls = 'inaccuracy';
+            else if (diff <= 220 * scale)                     cls = 'mistake';
+            else                                              cls = 'blunder';
+
+            // Brillant : amélioration significative sur le choix moteur
+            if (!isTopMove && !isSecondMove && diff < -60 && posBalance <= 400)
+                cls = 'brilliant';
+
+            replayClassifications[mi] = cls;
+
+            // ── Graphe (perspective blanche absolue) ──────────────────────────
+            // replayEvaluations[i] = eval à la position i, côté blanc
+            // results[i].cp est du côté de l'adversaire (après le coup)
+            replayEvaluations[i] = colorBefore === 'w' ? -afterCpOpponent : afterCpOpponent;
+            if (mi === 0) {
+                // Position initiale
+                replayEvaluations[0] = colorBefore === 'w' ? bestCpFromMover : -bestCpFromMover;
+            }
+
+            // ── Mise à jour UI progressive tous les 6 coups ───────────────────
+            if (mi % 6 === 5 || mi === moves.length - 1) {
+                renderMoveList();
+                renderEvalGraph();
+            }
+        }
+    }
+
+    // Position finale (pas de coup associé, juste le graphe)
+    if (!replayAnalysisCancelled && results[moves.length]) {
+        const lastColor = fens[moves.length].split(' ')[1];
+        const lastCp = clamp(
+            results[moves.length].mate !== null
+                ? (results[moves.length].mate > 0 ? 9999 : -9999)
+                : results[moves.length].cp
+        );
+        replayEvaluations[moves.length] = lastColor === 'w' ? lastCp : -lastCp;
+    }
+
+    // Réinitialiser MultiPV à 1 pour ne pas perturber l'eval normale
+    stockfishEval.postMessage('setoption name MultiPV value 1');
+
+    if (!replayAnalysisCancelled) {
+        replayAnalysisDone = true;
+        renderMoveList();
+        renderEvalGraph();
+        calculateAndDisplayAccuracy();
+        renderReplayBoard();
+        updateMoveInfo(replayMoveIndex);
+    }
+
+    if (loader) loader.classList.add('hidden');
+}
+
+function renderMoveList() {
+    const list = document.getElementById('gr-move-list');
+    if (!list) return;
+    let html = '';
+
+    const buildMoveHtml = (i) => {
+        const cls = replayClassifications[i];
+        const best = replayBestMoves[i];
+        const isActive = replayMoveIndex === i;
+        const showBest = cls && cls !== 'best' && cls !== 'brilliant' && best;
+        const cfgCls = cls ? CLASSIFICATION_CONFIG[cls] : null;
+
+        const badge = cfgCls
+            ? `<span class="gr-ml-badge" style="background:${cfgCls.color}" title="${cfgCls.label}">${cfgCls.icon}</span>`
+            : '';
+        const bestHint = showBest
+            ? `<span class="gr-ml-best-hint" title="Meilleur coup">${best.san}</span>`
+            : '';
+
+        return `<div class="gr-ml-move${isActive ? ' active' : ''}" data-move-idx="${i}">
+            <span class="gr-ml-san">${replayMoves[i].san}</span>${badge}${bestHint}
+        </div>`;
+    };
+
+    for (let i = 0; i < replayMoves.length; i += 2) {
+        const moveNum = Math.floor(i / 2) + 1;
+        const blackHtml = (i + 1 < replayMoves.length) ? buildMoveHtml(i + 1) : '<div class="gr-ml-move gr-ml-empty"></div>';
+        html += `<div class="gr-ml-row">
+            <span class="gr-ml-number">${moveNum}.</span>
+            ${buildMoveHtml(i)}
+            ${blackHtml}
+        </div>`;
+    }
+
+    list.innerHTML = html;
+
+    list.querySelectorAll('.gr-ml-move').forEach(el => {
+        el.addEventListener('click', () => {
+            const idx = parseInt(el.dataset.moveIdx);
+            replayGoTo(idx);
+        });
+    });
+
+    highlightActiveMoveInList(replayMoveIndex);
+}
+
+function highlightActiveMoveInList(index) {
+    const list = document.getElementById('gr-move-list');
+    if (!list) return;
+    list.querySelectorAll('.gr-ml-move').forEach(el => {
+        const idx = parseInt(el.dataset.moveIdx);
+        el.classList.toggle('active', idx === index);
+    });
+
+    // Auto-scroll
+    const active = list.querySelector('.gr-ml-move.active');
+    if (active) {
+        active.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+}
+
+function updateMoveInfo(index) {
+    const infoEl = document.getElementById('gr-move-info');
+    const iconEl = document.getElementById('gr-info-icon');
+    const labelEl = document.getElementById('gr-info-label');
+    const bestWrap = document.getElementById('gr-info-best');
+    const bestSanEl = document.getElementById('gr-info-best-san');
+    if (!infoEl) return;
+
+    if (index < 0 || index >= replayMoves.length || !replayClassifications[index]) {
+        infoEl.classList.add('hidden');
+        return;
+    }
+
+    const cls = replayClassifications[index];
+    const config = CLASSIFICATION_CONFIG[cls];
+    const best = replayBestMoves[index];
+
+    infoEl.classList.remove('hidden');
+    iconEl.innerHTML = config.icon;
+    iconEl.style.color = config.color;
+    labelEl.textContent = config.label;
+    infoEl.style.setProperty('--info-color', config.color);
+
+    if (best && cls !== 'best' && cls !== 'brilliant' && bestSanEl) {
+        bestWrap.classList.remove('hidden');
+        bestSanEl.textContent = best.san;
+    } else if (bestWrap) {
+        bestWrap.classList.add('hidden');
+    }
+}
+
+function renderEvalGraph() {
+    const canvas = document.getElementById('gr-eval-graph');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const rect = canvas.parentElement.getBoundingClientRect();
+    const isMobile = window.innerWidth <= 768;
+    const graphH = isMobile ? 130 : 48;
+    canvas.width = rect.width * (window.devicePixelRatio || 1);
+    canvas.height = graphH * (window.devicePixelRatio || 1);
+    canvas.style.width = rect.width + 'px';
+    canvas.style.height = graphH + 'px';
+    ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+
+    const w = rect.width;
+    const h = graphH;
+    const total = replayEvaluations.length;
+    if (total < 2) return;
+
+    // Background gradient
+    const gradTop = ctx.createLinearGradient(0, 0, 0, h);
+    gradTop.addColorStop(0, 'rgba(30,30,30,0.6)');
+    gradTop.addColorStop(0.5, 'rgba(50,50,50,0.3)');
+    gradTop.addColorStop(1, 'rgba(240,240,240,0.6)');
+    ctx.fillStyle = gradTop;
+    ctx.fillRect(0, 0, w, h);
+
+    // Reference line at y=50%
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, h / 2);
+    ctx.lineTo(w, h / 2);
+    ctx.stroke();
+
+    // Eval curve
+    ctx.beginPath();
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+    ctx.lineWidth = 1.5;
+
+    for (let i = 0; i < total; i++) {
+        const x = (i / (total - 1)) * w;
+        let cp = replayEvaluations[i];
+        cp = Math.max(-1000, Math.min(1000, cp));
+        const y = h / 2 - (cp / 1000) * (h / 2 - 4);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // Fill area
+    ctx.lineTo((total - 1) / (total - 1) * w, h / 2);
+    ctx.lineTo(0, h / 2);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(136,176,75,0.15)';
+    ctx.fill();
+
+    // Cursor for current move
+    updateEvalGraphCursor(replayMoveIndex);
+}
+
+function updateEvalGraphCursor(index) {
+    const canvas = document.getElementById('gr-eval-graph');
+    if (!canvas || replayEvaluations.length < 2) return;
+
+    renderEvalGraphBase();
+
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.width / dpr;
+    const h = canvas.height / dpr;
+    const total = replayEvaluations.length;
+    const cursorIdx = index + 1;
+    if (cursorIdx < 0 || cursorIdx >= total) return;
+
+    const x = (cursorIdx / (total - 1)) * w;
+    ctx.save();
+    ctx.scale(dpr, dpr);
+    ctx.strokeStyle = 'var(--accent)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, h);
+    ctx.stroke();
+    ctx.restore();
+}
+
+function renderEvalGraphBase() {
+    const canvas = document.getElementById('gr-eval-graph');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.width / dpr;
+    const h = canvas.height / dpr;
+    const total = replayEvaluations.length;
+    if (total < 2) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.save();
+    ctx.scale(dpr, dpr);
+
+    const gradTop = ctx.createLinearGradient(0, 0, 0, h);
+    gradTop.addColorStop(0, 'rgba(30,30,30,0.6)');
+    gradTop.addColorStop(0.5, 'rgba(50,50,50,0.3)');
+    gradTop.addColorStop(1, 'rgba(240,240,240,0.6)');
+    ctx.fillStyle = gradTop;
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, h / 2);
+    ctx.lineTo(w, h / 2);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+    ctx.lineWidth = 1.5;
+
+    for (let i = 0; i < total; i++) {
+        const x = (i / (total - 1)) * w;
+        let cp = replayEvaluations[i];
+        cp = Math.max(-1000, Math.min(1000, cp));
+        const y = h / 2 - (cp / 1000) * (h / 2 - 4);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    const lastX = w;
+    ctx.lineTo(lastX, h / 2);
+    ctx.lineTo(0, h / 2);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(136,176,75,0.15)';
+    ctx.fill();
+    ctx.restore();
+}
+
+function clearEvalGraphCanvas() {
+    const canvas = document.getElementById('gr-eval-graph');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+function calculateAndDisplayAccuracy() {
+    if (replayClassifications.length === 0) return;
+
+    const scoreMap = {
+        brilliant: 100, best: 100, excellent: 95,
+        good: 80, inaccuracy: 50, mistake: 20, blunder: 0
+    };
+
+    let whiteScores = [], blackScores = [];
+    for (let i = 0; i < replayClassifications.length; i++) {
+        const cls = replayClassifications[i];
+        if (!cls) continue;
+        const score = scoreMap[cls] || 50;
+        if (i % 2 === 0) whiteScores.push(score);
+        else blackScores.push(score);
+    }
+
+    const avg = arr => arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
+    const whiteAcc = avg(whiteScores);
+    const blackAcc = avg(blackScores);
+
+    const wEl = document.getElementById('gr-acc-white');
+    const bEl = document.getElementById('gr-acc-black');
+    if (wEl) wEl.textContent = whiteAcc + '%';
+    if (bEl) bEl.textContent = blackAcc + '%';
+}
