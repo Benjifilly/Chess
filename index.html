@@ -99,58 +99,114 @@
                         </div>
                     </div>
                     <div class="menu-card-settings" id="menu-solo-settings">
-                        <div class="menu-setting-group">
-                            <label class="menu-setting-label">Niveau du Bot</label>
-                            <div class="menu-elo-presets">
-                                <button class="menu-elo-btn selected" data-elo="400" data-diff="1">
-                                    <span class="elo-name">Débutant</span>
-                                    <span class="elo-val">400</span>
-                                </button>
-                                <button class="menu-elo-btn" data-elo="800" data-diff="3">
-                                    <span class="elo-name">Inter.</span>
-                                    <span class="elo-val">800</span>
-                                </button>
-                                <button class="menu-elo-btn" data-elo="1500" data-diff="4">
-                                    <span class="elo-name">Avancé</span>
-                                    <span class="elo-val">1500</span>
-                                </button>
-                                <button class="menu-elo-btn" data-elo="2500" data-diff="5">
-                                    <span class="elo-name">Expert</span>
-                                    <span class="elo-val">2500</span>
-                                </button>
-                            </div>
-                            <div class="menu-elo-custom">
-                                <input type="range" id="menu-elo-slider" min="200" max="3000" step="50" value="400"
-                                    class="menu-slider">
-                                <span id="menu-elo-display" class="menu-elo-display">400 ELO</span>
-                            </div>
+                        <!-- Sub-mode toggle: Bot vs Local Multiplayer -->
+                        <div class="menu-submode-toggle" id="menu-submode-toggle">
+                            <div class="menu-submode-slider"></div>
+                            <button class="menu-submode-btn active" data-submode="bot">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="3" y="11" width="18" height="10" rx="2"/>
+                                    <circle cx="12" cy="5" r="2"/>
+                                    <path d="M12 7v4"/>
+                                    <line x1="8" y1="16" x2="8" y2="16"/>
+                                    <line x1="16" y1="16" x2="16" y2="16"/>
+                                </svg>
+                                Contre un Bot
+                            </button>
+                            <button class="menu-submode-btn" data-submode="local">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                                    <circle cx="9" cy="7" r="4"/>
+                                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                                    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                                </svg>
+                                Multijoueur
+                            </button>
                         </div>
-                        <div class="menu-setting-group">
-                            <label class="menu-setting-label">Ta couleur</label>
-                            <div class="menu-color-select">
-                                <button class="menu-color-btn" data-color="white">
-                                    <img src="pièces/default/white-king.png" alt="Blancs">
-                                    <span>Blancs</span>
-                                </button>
-                                <button class="menu-color-btn" data-color="random">
-                                    <div class="menu-random-icon">
-                                        <img src="pièces/default/white-king.png" class="half-l">
-                                        <img src="pièces/default/black-king.png" class="half-r">
+
+                        <!-- Bot sub-view -->
+                        <div class="menu-submode-panel" id="menu-submode-bot">
+                            <div class="menu-setting-group">
+                                <label class="menu-setting-label">Niveau du Bot</label>
+                                <div class="menu-elo-presets">
+                                    <button class="menu-elo-btn selected" data-elo="400" data-diff="1">
+                                        <span class="elo-name">Débutant</span>
+                                        <span class="elo-val">400</span>
+                                    </button>
+                                    <button class="menu-elo-btn" data-elo="800" data-diff="3">
+                                        <span class="elo-name">Inter.</span>
+                                        <span class="elo-val">800</span>
+                                    </button>
+                                    <button class="menu-elo-btn" data-elo="1500" data-diff="4">
+                                        <span class="elo-name">Avancé</span>
+                                        <span class="elo-val">1500</span>
+                                    </button>
+                                    <button class="menu-elo-btn" data-elo="2500" data-diff="5">
+                                        <span class="elo-name">Expert</span>
+                                        <span class="elo-val">2500</span>
+                                    </button>
+                                </div>
+                                <div class="menu-elo-custom">
+                                    <input type="range" id="menu-elo-slider" min="200" max="3000" step="50" value="400"
+                                        class="menu-slider">
+                                    <span id="menu-elo-display" class="menu-elo-display">400 ELO</span>
+                                </div>
+                            </div>
+                            <div class="menu-setting-group">
+                                <label class="menu-setting-label">Ta couleur</label>
+                                <div class="menu-color-select">
+                                    <button class="menu-color-btn" data-color="white">
+                                        <img src="pièces/default/white-king.png" alt="Blancs">
+                                        <span>Blancs</span>
+                                    </button>
+                                    <button class="menu-color-btn" data-color="random">
+                                        <div class="menu-random-icon">
+                                            <img src="pièces/default/white-king.png" class="half-l">
+                                            <img src="pièces/default/black-king.png" class="half-r">
+                                        </div>
+                                        <span>Aléatoire</span>
+                                    </button>
+                                    <button class="menu-color-btn" data-color="black">
+                                        <img src="pièces/default/black-king.png" alt="Noirs">
+                                        <span>Noirs</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <button class="menu-launch-btn" id="menu-solo-launch" disabled>
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                                </svg>
+                                Lancer la partie
+                            </button>
+                        </div>
+
+                        <!-- Local Multiplayer sub-view -->
+                        <div class="menu-submode-panel hidden" id="menu-submode-local">
+                            <div class="menu-setting-group">
+                                <p class="menu-local-hint">
+                                    Deux joueurs sur le même appareil. L'échiquier tourne automatiquement à chaque coup.
+                                </p>
+                            </div>
+                            <div class="menu-setting-group">
+                                <div class="menu-toggle-row">
+                                    <div class="menu-toggle-text">
+                                        <span class="menu-toggle-title">Rotation automatique</span>
+                                        <span class="menu-toggle-sub">Tourne l'échiquier à chaque tour</span>
                                     </div>
-                                    <span>Aléatoire</span>
-                                </button>
-                                <button class="menu-color-btn" data-color="black">
-                                    <img src="pièces/default/black-king.png" alt="Noirs">
-                                    <span>Noirs</span>
-                                </button>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="menu-local-rotate-toggle" checked>
+                                        <span class="toggle-track">
+                                            <span class="toggle-thumb"></span>
+                                        </span>
+                                    </label>
+                                </div>
                             </div>
+                            <button class="menu-launch-btn" id="menu-local-launch">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                                </svg>
+                                Lancer la partie
+                            </button>
                         </div>
-                        <button class="menu-launch-btn" id="menu-solo-launch" disabled>
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                                <polygon points="5 3 19 12 5 21 5 3"></polygon>
-                            </svg>
-                            Lancer la partie
-                        </button>
                     </div>
                 </div>
 
@@ -296,6 +352,43 @@
                             </path>
                         </svg>
                     </button>
+                </div>
+            </div>
+
+            <!-- Solo sub-mode: Bot vs Local Multiplayer (shown only when SOLO is selected) -->
+            <div id="modal-submode-section" class="modal-submode-section" style="display: none;">
+                <p>Type de partie :</p>
+                <div class="menu-submode-toggle modal-submode-toggle" id="modal-submode-toggle">
+                    <div class="menu-submode-slider"></div>
+                    <button class="menu-submode-btn active" data-submode="bot" type="button">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="11" width="18" height="10" rx="2"/>
+                            <circle cx="12" cy="5" r="2"/>
+                            <path d="M12 7v4"/>
+                        </svg>
+                        Contre un Bot
+                    </button>
+                    <button class="menu-submode-btn" data-submode="local" type="button">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                            <circle cx="9" cy="7" r="4"/>
+                            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                        </svg>
+                        Multijoueur
+                    </button>
+                </div>
+                <div id="modal-local-options" class="menu-toggle-row" style="display: none; margin-top: 12px;">
+                    <div class="menu-toggle-text">
+                        <span class="menu-toggle-title">Rotation automatique</span>
+                        <span class="menu-toggle-sub">Tourne l'échiquier à chaque tour</span>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="modal-local-rotate-toggle" checked>
+                        <span class="toggle-track">
+                            <span class="toggle-thumb"></span>
+                        </span>
+                    </label>
                 </div>
             </div>
 
@@ -722,7 +815,23 @@
                         </svg>
                         Abandonner
                     </div>
-                    <div class="dropdown-divider"></div>
+                    <!-- Rotation toggle (local mode only) -->
+                    <div class="dropdown-item dropdown-toggle-item local-only-item" id="rotate-toggle-item" style="display: none;">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="23 4 23 10 17 10"/>
+                            <polyline points="1 20 1 14 7 14"/>
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                        </svg>
+                        <span class="dropdown-toggle-text">Rotation auto</span>
+                        <label class="toggle-switch toggle-switch-sm" onclick="event.stopPropagation()">
+                            <input type="checkbox" id="rotate-toggle-input">
+                            <span class="toggle-track">
+                                <span class="toggle-thumb"></span>
+                            </span>
+                        </label>
+                    </div>
+                    <div class="dropdown-divider local-only-item" style="display: none;"></div>
                     <div class="dropdown-item" id="switch-duo-item" onclick="switchToDuo()" style="display: none;">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

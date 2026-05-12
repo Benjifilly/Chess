@@ -27,6 +27,12 @@ let isBotThinking = false; // Mutex: true while a Stockfish search is in progres
 let duoInitializing = false; // Flag to ignore stale Supabase states during new game init
 let isPageLoadingComplete = false; // Flag to suppress modal display on page reload
 
+// Local (Pass-and-Play) mode state.
+// When gameMode === 'local', both players share the same screen.
+// `localAutoRotate` controls whether the board flips automatically each turn.
+let localAutoRotate = true;
+let isPromotionPending = false; // Lock during promotion picker
+
 // Anti-spam for system notices (leave / etc.)
 let lastSystemNoticeAt = 0;
 
@@ -785,12 +791,32 @@ function openNewGameModal() {
     closeModal('game-over-modal');
     newGameModal.classList.remove('hidden');
 
+    // Wire the modal sub-mode toggle the first time it's opened.
+    const modalSubToggle = document.getElementById('modal-submode-toggle');
+    if (modalSubToggle && !modalSubToggle.dataset.wired) {
+        modalSubToggle.dataset.wired = '1';
+        modalSubToggle.querySelectorAll('.menu-submode-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                setModalSubmode(btn.dataset.submode);
+            });
+        });
+    }
+
     // Restore last-used settings from localStorage (or use defaults)
     const saved = localStorage.getItem('chess_new_game_settings');
     if (saved) {
         try {
             const s = JSON.parse(saved);
-            selectMode(s.mode || 'duo');
+            // Map saved mode 'local' → display as 'solo' with the local sub-tab.
+            const persistedSub = (s.mode === 'local') ? 'local' : 'bot';
+            const baseMode = (s.mode === 'local') ? 'solo' : (s.mode || 'duo');
+            selectMode(baseMode);
+            setModalSubmode(persistedSub);
+            if (typeof s.localAutoRotate === 'boolean') {
+                const t = document.getElementById('modal-local-rotate-toggle');
+                if (t) t.checked = s.localAutoRotate;
+            }
             selectTime(typeof s.time === 'number' ? s.time : 5);
             if (s.color) {
                 selectColor(s.color);
@@ -827,16 +853,82 @@ function openNewGameModal() {
     selectMode('duo');
 }
 
+// Sub-mode chosen inside the old "Nouvelle Partie" modal when SOLO is picked.
+let modalSubmode = 'bot'; // 'bot' | 'local'
+
 function selectMode(mode) {
     gameMode = mode;
     const toggle = document.getElementById('mode-toggle');
     const diffSection = document.getElementById('difficulty-section');
+    const submodeSection = document.getElementById('modal-submode-section');
     if (mode === 'solo') {
         toggle.classList.add('solo-active');
         diffSection.classList.add('visible');
+        if (submodeSection) submodeSection.style.display = '';
+        // Re-apply current modal sub-mode so the panels are in sync.
+        setModalSubmode(modalSubmode);
     } else {
         toggle.classList.remove('solo-active');
         diffSection.classList.remove('visible');
+        if (submodeSection) submodeSection.style.display = 'none';
+        // Force color/time back on (in case we came from a local sub-tab)
+        revealColorAndTimeSections();
+    }
+}
+
+function revealColorAndTimeSections() {
+    const colorBlock = document.querySelector('#new-game-modal .color-choices');
+    const colorLabel = colorBlock ? colorBlock.previousElementSibling : null;
+    const timeBlock  = document.querySelector('#new-game-modal .time-choices');
+    const timeLabel  = timeBlock ? timeBlock.previousElementSibling : null;
+    [colorBlock, colorLabel, timeBlock, timeLabel].forEach(el => {
+        if (el) el.style.display = '';
+    });
+}
+
+function setModalSubmode(sub, skipPanelToggle) {
+    if (sub !== 'bot' && sub !== 'local') return;
+    modalSubmode = sub;
+
+    const toggleEl  = document.getElementById('modal-submode-toggle');
+    const localOpts = document.getElementById('modal-local-options');
+    const diffSection = document.getElementById('difficulty-section');
+
+    if (toggleEl) {
+        toggleEl.dataset.active = sub;
+        toggleEl.querySelectorAll('.menu-submode-btn').forEach(b => {
+            b.classList.toggle('active', b.dataset.submode === sub);
+        });
+    }
+    if (localOpts) {
+        localOpts.style.display = (sub === 'local') ? '' : 'none';
+    }
+
+    // Color, time and difficulty are irrelevant in local mode.
+    if (!skipPanelToggle && gameMode === 'solo') {
+        const colorBlock = document.querySelector('#new-game-modal .color-choices');
+        const colorLabel = colorBlock ? colorBlock.previousElementSibling : null;
+        const timeBlock  = document.querySelector('#new-game-modal .time-choices');
+        const timeLabel  = timeBlock ? timeBlock.previousElementSibling : null;
+        const hide = (sub === 'local');
+        [colorBlock, colorLabel, timeBlock, timeLabel].forEach(el => {
+            if (el) el.style.display = hide ? 'none' : '';
+        });
+        if (diffSection) {
+            // Drive both display and the .visible expand-class to keep transitions clean
+            if (hide) {
+                diffSection.style.display = 'none';
+                diffSection.classList.remove('visible');
+            } else {
+                diffSection.style.display = '';
+                diffSection.classList.add('visible');
+            }
+        }
+
+        // The "Jouer" button is gated by color selection in bot mode — but
+        // local mode needs no color, so enable it directly.
+        const startBtn = document.getElementById('start-game-btn');
+        if (startBtn && hide) startBtn.disabled = false;
     }
 }
 
@@ -884,9 +976,15 @@ function updateModeBadge() {
         if (gameMode === 'solo') {
             badge.textContent = 'SOLO';
             badge.classList.add('solo');
+            badge.classList.remove('local');
+        } else if (gameMode === 'local') {
+            badge.textContent = 'LOCAL';
+            badge.classList.add('solo'); // reuse styling
+            badge.classList.add('local');
         } else {
             badge.textContent = 'DUO';
             badge.classList.remove('solo');
+            badge.classList.remove('local');
         }
     }
     if (switchDuoItem) {
@@ -895,13 +993,30 @@ function updateModeBadge() {
     document.querySelectorAll('.duo-only-item').forEach(el => {
         el.style.display = gameMode === 'duo' ? '' : 'none';
     });
+    // Show rotation toggle only in local mode
+    document.querySelectorAll('.local-only-item').forEach(el => {
+        el.style.display = gameMode === 'local' ? '' : 'none';
+    });
+    // Toggle a body-level class so CSS can declutter the header in local mode
+    document.body.classList.toggle('mode-local', gameMode === 'local');
 }
 
 function updateOpponentName() {
     if (gameMode === 'solo') {
         opponentNameEl.innerHTML = 'Bot <img src="images/benji_robot.png" style="width: 24px; vertical-align: middle; margin-left: 5px;">';
+        if (myNameEl && myName) myNameEl.textContent = myName;
+    } else if (gameMode === 'local') {
+        // In local mode the top opponent block is hidden via CSS (.mode-local).
+        // The bottom line just shows who plays now.
+        const turnColor = game ? game.turn() : 'w';
+        if (myNameEl) {
+            myNameEl.textContent = turnColor === 'w' ? 'Tour des Blancs' : 'Tour des Noirs';
+        }
     } else {
         opponentNameEl.textContent = myName === 'Benji' ? 'Sanaa' : 'Benji';
+        if (myNameEl && myName) {
+            myNameEl.textContent = myName;
+        }
     }
 }
 
@@ -970,6 +1085,16 @@ function selectColor(color) {
 }
 
 async function confirmNewGame() {
+    // Solo card with Local sub-mode: delegate to the dedicated pass-and-play
+    // starter — color/time/difficulty don't apply here.
+    if (gameMode === 'solo' && modalSubmode === 'local') {
+        const rotInput = document.getElementById('modal-local-rotate-toggle');
+        const rotate = rotInput ? !!rotInput.checked : true;
+        closeModal('new-game-modal');
+        startLocalGame(rotate);
+        return;
+    }
+
     if (!selectedColorChoice) return;
 
     closeModal('new-game-modal');
@@ -2381,8 +2506,145 @@ function animateMove(from, to) {
     });
 }
 
+// ---------- Pawn promotion ----------
+
+function isPromotionMove(from, to, currentGame = game) {
+    const piece = currentGame.get(from);
+    if (!piece || piece.type !== 'p') return false;
+    const toRank = to[1];
+    return (piece.color === 'w' && toRank === '8') ||
+           (piece.color === 'b' && toRank === '1');
+}
+
+/**
+ * Show a contextual popover above (or below) the destination square
+ * and let the user pick Q/R/B/N. Resolves with the piece letter, or
+ * null if the user cancels.
+ */
+function showPromotionPicker(toSquare, color) {
+    return new Promise((resolve) => {
+        // Clean any previous instance
+        document.querySelectorAll('.promo-overlay, .promo-popover').forEach(el => el.remove());
+
+        const overlay = document.createElement('div');
+        overlay.className = 'promo-overlay';
+
+        const popover = document.createElement('div');
+        popover.className = 'promo-popover';
+
+        const colorName = color === 'w' ? 'white' : 'black';
+        const pieces = ['q', 'r', 'b', 'n'];
+        const pieceNames = { q: 'queen', r: 'rook', b: 'bishop', n: 'knight' };
+
+        // Position relative to the destination square.
+        const toDiv = document.querySelector(`.square[data-square="${toSquare}"]`);
+        if (!toDiv) { resolve(null); return; }
+        const rect = toDiv.getBoundingClientRect();
+        const boardEl = document.getElementById('board');
+        const boardRect = boardEl.getBoundingClientRect();
+        const sqSize = rect.width;
+
+        // Stack 4 pieces. If the destination is in the top half of the board,
+        // stack downward (into the board) so it doesn't escape the screen.
+        // Otherwise stack upward.
+        const stackDown = (rect.top - boardRect.top) < (boardRect.height / 2);
+        const pieceOrder = stackDown ? pieces : pieces.slice().reverse();
+
+        pieceOrder.forEach(p => {
+            const btn = document.createElement('button');
+            btn.className = 'promo-piece';
+            btn.type = 'button';
+            btn.dataset.piece = p;
+            btn.setAttribute('aria-label', pieceNames[p]);
+            const img = document.createElement('img');
+            img.src = `pièces/default/${colorName}-${pieceNames[p]}.png`;
+            img.alt = pieceNames[p];
+            img.draggable = false;
+            btn.appendChild(img);
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                cleanup();
+                resolve(p);
+            });
+            popover.appendChild(btn);
+        });
+
+        const cancel = document.createElement('button');
+        cancel.className = 'promo-cancel';
+        cancel.type = 'button';
+        cancel.textContent = '×';
+        cancel.setAttribute('aria-label', 'Annuler');
+        cancel.addEventListener('click', (e) => {
+            e.stopPropagation();
+            cleanup();
+            resolve(null);
+        });
+        popover.appendChild(cancel);
+
+        // Position: width matches one square; pieces stack 4 high + cancel row.
+        popover.style.width = sqSize + 'px';
+        // Horizontally clamp so the popover stays on screen.
+        let leftPx = rect.left;
+        const maxLeft = window.innerWidth - sqSize - 4;
+        if (leftPx < 4) leftPx = 4;
+        if (leftPx > maxLeft) leftPx = maxLeft;
+        popover.style.left = leftPx + 'px';
+
+        const popoverHeight = sqSize * 4 + 28; // 4 pieces + cancel row
+        if (stackDown) {
+            popover.style.top = rect.top + 'px';
+            popover.classList.add('stack-down');
+        } else {
+            popover.style.top = (rect.bottom - popoverHeight) + 'px';
+            popover.classList.add('stack-up');
+        }
+
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) {
+                cleanup();
+                resolve(null);
+            }
+        });
+
+        function cleanup() {
+            overlay.remove();
+            popover.remove();
+            document.removeEventListener('keydown', onEsc);
+        }
+        function onEsc(e) {
+            if (e.key === 'Escape') {
+                cleanup();
+                resolve(null);
+            }
+        }
+        document.addEventListener('keydown', onEsc);
+
+        document.body.appendChild(overlay);
+        document.body.appendChild(popover);
+    });
+}
+
 async function makeMove(from, to, dragEvent = null) {
-    const move = game.move({ from, to, promotion: 'q' }); // Promotion auto en Reine pour simplifier
+    // Pawn promotion: ask the player which piece to promote to.
+    let promotionPiece = 'q';
+    if (isPromotionMove(from, to)) {
+        const pawnColor = game.get(from).color;
+        isPromotionPending = true;
+        try {
+            const choice = await showPromotionPicker(to, pawnColor);
+            if (!choice) {
+                // User cancelled — reset selection and re-render.
+                selectedSquare = null;
+                renderBoard();
+                return;
+            }
+            promotionPiece = choice;
+        } finally {
+            isPromotionPending = false;
+        }
+    }
+
+    const move = game.move({ from, to, promotion: promotionPiece });
 
     if (move) {
         // Play move or capture sound
@@ -2436,6 +2698,16 @@ async function makeMove(from, to, dragEvent = null) {
                     dropY = dragEvent.changedTouches[0].clientY;
                 }
                 snapDragOffset = { dx: dropX - centerX, dy: dropY - centerY, square: to };
+            }
+        }
+
+        // Pass-and-play: the next turn belongs to the other side.
+        // Re-target `myColor` and flip the board if rotation is enabled.
+        if (gameMode === 'local') {
+            myColor = game.turn();
+            updateOpponentName();
+            if (localAutoRotate) {
+                boardFlipped = (myColor === 'b');
             }
         }
 
@@ -2685,11 +2957,19 @@ function showGameOver(winner, context = {}) {
     // Play game over sound
     try { playSound('gameOver'); } catch (e) { }
 
-    // Save to game history before clearing
-    const iWon = winner === 'draw' ? null : ((winner === 'Blancs' && myColor === 'w') || (winner === 'Noirs' && myColor === 'b'));
+    // Save to game history before clearing.
+    // In local mode `myColor` flips every turn, so we record the result
+    // from White's perspective and always save with my_color = 'w'.
     let result = 'draw';
-    if (iWon === true) result = 'win';
-    else if (iWon === false) result = 'loss';
+    if (winner !== 'draw') {
+        if (gameMode === 'local') {
+            result = winner === 'Blancs' ? 'win' : 'loss';
+        } else {
+            const iWon = (winner === 'Blancs' && myColor === 'w') ||
+                         (winner === 'Noirs'  && myColor === 'b');
+            result = iWon ? 'win' : 'loss';
+        }
+    }
     saveGameToHistory(result, context.reason || null);
 
     // Clear the saved game since the game is over
@@ -2698,7 +2978,16 @@ function showGameOver(winner, context = {}) {
     gameOverModal.classList.remove('hidden');
     if (winner === 'draw') {
         gameOverTitle.textContent = "Match Nul !";
-        gameOverMessage.textContent = "On est trop connectés, impossible de se départager ! 🤝";
+        gameOverMessage.textContent = gameMode === 'local'
+            ? "Partie nulle. Bien joué à vous deux !"
+            : "On est trop connectés, impossible de se départager ! 🤝";
+    } else if (gameMode === 'local') {
+        // Pass-and-play: announce the winning side, no "me/opponent" perspective.
+        gameOverTitle.textContent = `Les ${winner} gagnent ! 🎉`;
+        gameOverMessage.textContent = context && context.reason === 'resign'
+            ? `${winner === 'Blancs' ? 'Les Noirs' : 'Les Blancs'} ont abandonné.`
+            : 'Échec et mat. GG !';
+        triggerConfetti();
     } else {
         const iWon = (winner === 'Blancs' && myColor === 'w') || (winner === 'Noirs' && myColor === 'b');
         const opponentName = myName === 'Benji' ? 'Sanaa' : 'Benji';
@@ -2742,6 +3031,34 @@ async function replayGame() {
     }
 
     const params = lastGameParams;
+
+    if (params.mode === 'local') {
+        // Pass-and-play replay
+        gameMode = 'local';
+        localAutoRotate = !!params.localAutoRotate;
+
+        game.reset();
+        lastMove = null;
+        viewIndex = null;
+        isBotThinking = false;
+        myColor = 'w';
+        boardFlipped = false;
+
+        timeControl = 0;
+        whiteTimeRemaining = 0;
+        blackTimeRemaining = 0;
+        lastMoveTimestamp = Date.now();
+
+        const rotateInput = document.getElementById('rotate-toggle-input');
+        if (rotateInput) rotateInput.checked = localAutoRotate;
+
+        renderBoard();
+        updateStatus();
+        startTimer();
+        updateModeBadge();
+        updateOpponentName();
+        return;
+    }
 
     if (params.mode === 'solo') {
         // Solo replay
@@ -3050,6 +3367,24 @@ document.getElementById('flip-btn').addEventListener('click', () => {
     // --- EVAL BAR ---
     triggerEvalForPosition(game.fen());
 });
+
+// In-game rotation toggle (kebab menu, local mode only).
+// Disabling mid-game snaps the board back to the default (white at bottom).
+(function wireRotateToggle() {
+    const rotateInput = document.getElementById('rotate-toggle-input');
+    if (!rotateInput) return;
+    rotateInput.addEventListener('change', () => {
+        localAutoRotate = !!rotateInput.checked;
+        if (gameMode !== 'local') return;
+        if (localAutoRotate) {
+            boardFlipped = (game.turn() === 'b');
+        } else {
+            // Reset to default orientation (white at bottom) immediately.
+            boardFlipped = false;
+        }
+        renderBoard();
+    });
+})();
 
 document.getElementById('reset-btn').addEventListener('click', () => {
     openNewGameModal();
@@ -3606,6 +3941,7 @@ function clearSoloState() {
 // Menu DOM elements (lazily initialized to avoid TDZ issues)
 let mainMenuEl, soloCard, duoCard, soloSettings, duoSettings;
 let menuEloSlider, menuEloDisplay, soloLaunchBtn, duoLaunchBtn;
+let menuLocalLaunchBtn, menuLocalRotateToggle, menuSubmodeToggle;
 let menuDomReady = false;
 
 function ensureMenuDom() {
@@ -3619,6 +3955,9 @@ function ensureMenuDom() {
     menuEloDisplay = document.getElementById('menu-elo-display');
     soloLaunchBtn = document.getElementById('menu-solo-launch');
     duoLaunchBtn = document.getElementById('menu-duo-launch');
+    menuLocalLaunchBtn = document.getElementById('menu-local-launch');
+    menuLocalRotateToggle = document.getElementById('menu-local-rotate-toggle');
+    menuSubmodeToggle = document.getElementById('menu-submode-toggle');
     menuDomReady = true;
 }
 
@@ -3628,6 +3967,8 @@ let menuSoloDiff = 1;
 let menuSoloColor = null;
 let menuDuoColor = null;
 let menuDuoTime = 5; // Default 5 minutes for duo
+let menuSubmode = 'bot'; // 'bot' | 'local' — sub-mode of the Solo card
+let menuLocalRotate = true; // Pass-and-play rotation default
 
 // --- Show / Hide Main Menu ---
 
@@ -3678,6 +4019,18 @@ function restoreMenuSettings() {
     if (!saved) return;
     try {
         const s = JSON.parse(saved);
+
+        // Restore Solo sub-mode (bot vs local)
+        if (s.mode === 'local') {
+            setMenuSubmode('local');
+        } else {
+            setMenuSubmode('bot');
+        }
+        if (typeof s.localAutoRotate === 'boolean') {
+            menuLocalRotate = s.localAutoRotate;
+            if (menuLocalRotateToggle) menuLocalRotateToggle.checked = s.localAutoRotate;
+        }
+
         // Restore Solo Elo
         if (typeof s.botEloOverride === 'number') {
             menuSoloElo = s.botEloOverride;
@@ -3842,6 +4195,31 @@ function setupMenuListeners() {
         });
     });
 
+    // Sub-mode toggle (Bot / Local) inside the Solo card
+    if (menuSubmodeToggle) {
+        menuSubmodeToggle.querySelectorAll('.menu-submode-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                setMenuSubmode(btn.dataset.submode);
+            });
+        });
+    }
+
+    // Local rotation toggle in the menu
+    if (menuLocalRotateToggle) {
+        menuLocalRotateToggle.addEventListener('change', (e) => {
+            menuLocalRotate = !!menuLocalRotateToggle.checked;
+        });
+    }
+
+    // Launch Local Multiplayer (Pass-and-Play)
+    if (menuLocalLaunchBtn) {
+        menuLocalLaunchBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            startLocalGame();
+        });
+    }
+
     // Launch Solo Game
     soloLaunchBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -3961,6 +4339,78 @@ function setupMenuListeners() {
         }
 
         startNewDuoGame();
+    });
+}
+
+// --- Local Pass-and-Play sub-mode ---
+
+function setMenuSubmode(mode) {
+    if (mode !== 'bot' && mode !== 'local') return;
+    menuSubmode = mode;
+    if (!menuSubmodeToggle) return;
+
+    menuSubmodeToggle.dataset.active = mode;
+    menuSubmodeToggle.querySelectorAll('.menu-submode-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.submode === mode);
+    });
+    const botPanel = document.getElementById('menu-submode-bot');
+    const localPanel = document.getElementById('menu-submode-local');
+    if (botPanel)   botPanel.classList.toggle('hidden', mode !== 'bot');
+    if (localPanel) localPanel.classList.toggle('hidden', mode !== 'local');
+}
+
+function startLocalGame(rotateOverride) {
+    gameMode = 'local';
+    if (typeof rotateOverride === 'boolean') {
+        localAutoRotate = rotateOverride;
+    } else {
+        localAutoRotate = !!(menuLocalRotateToggle && menuLocalRotateToggle.checked);
+    }
+
+    selectedColorChoice = 'white';
+    selectedTimeChoice = 0;
+
+    lastGameParams = {
+        mode: 'local',
+        color: 'white',
+        time: 0,
+        localAutoRotate: localAutoRotate
+    };
+
+    localStorage.setItem('chess_new_game_settings', JSON.stringify({
+        mode: 'local',
+        color: 'white',
+        time: 0,
+        localAutoRotate: localAutoRotate
+    }));
+
+    game.reset();
+    lastMove = null;
+    viewIndex = null;
+    isBotThinking = false;
+    clearGameOverFlags();
+
+    // White starts at the bottom. myColor tracks "who plays next" so
+    // the existing turn-gating in onSquareClick allows whoever is to move.
+    myColor = 'w';
+    boardFlipped = false;
+
+    timeControl = 0;
+    whiteTimeRemaining = 0;
+    blackTimeRemaining = 0;
+    lastMoveTimestamp = Date.now();
+
+    // Sync the kebab rotate toggle with the current state.
+    const rotateInput = document.getElementById('rotate-toggle-input');
+    if (rotateInput) rotateInput.checked = localAutoRotate;
+
+    transitionMenuToGame(() => {
+        renderBoard();
+        updateStatus();
+        startTimer();
+        updateModeBadge();
+        updateOpponentName();
+        saveGameState();
     });
 }
 
@@ -4115,6 +4565,9 @@ function returnToMenu(options = {}) {
     // Close any open dropdowns/modals
     settingsDropdown.classList.remove('active');
 
+    // Drop the local-mode body class so the menu header isn't affected
+    document.body.classList.remove('mode-local');
+
     // Duo illimité: avertir si quelqu'un quitte la partie
     if (!options.suppressLeaveNotice &&
         gameMode === 'duo' &&
@@ -4156,7 +4609,9 @@ function saveGameState() {
         lastMoveTimestamp: lastMoveTimestamp,
         moveCount: history.length,
         turn: game.turn(),
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        // Pass-and-play preference
+        localAutoRotate: gameMode === 'local' ? localAutoRotate : undefined
     };
 
     saves[gameMode] = state;
@@ -4358,13 +4813,17 @@ function createSavedGameCard(key, save, index) {
     card.style.animationDelay = (index * 0.08) + 's';
 
     const isSolo = save.gameMode === 'solo';
+    const isLocal = save.gameMode === 'local';
+    const isDuo = save.gameMode === 'duo';
     const turnColor = save.turn === 'w' ? 'Blancs' : 'Noirs';
     const turnDotClass = save.turn === 'w' ? 'white' : 'black';
     const eloText = isSolo && save.botEloOverride ? save.botEloOverride + ' ELO' : '';
+    const modeLabel = isSolo ? 'SOLO' : isLocal ? 'LOCAL' : 'DUO';
+    const modeClass = isSolo ? 'solo' : isLocal ? 'local' : 'duo';
 
-    // Format time control (only for duo — solo always uses infinite time)
+    // Format time control (only for duo — solo/local use infinite time)
     let timeText = '';
-    if (!isSolo && save.timeControl !== undefined && save.timeControl !== null) {
+    if (isDuo && save.timeControl !== undefined && save.timeControl !== null) {
         const minutes = save.timeControl / 60000;
         timeText = minutes > 0 ? `${minutes} min` : '∞';
     }
@@ -4383,7 +4842,7 @@ function createSavedGameCard(key, save, index) {
     card.innerHTML = `
         <div class="saved-game-info">
             <div class="saved-game-mode">
-                <span class="mode-tag ${isSolo ? 'solo' : 'duo'}">${isSolo ? 'SOLO' : 'DUO'}</span>
+                <span class="mode-tag ${modeClass}">${modeLabel}</span>
                 ${eloText ? `<span class="elo-tag">${eloText}</span>` : ''}
                 ${timeText ? `<span class="time-tag">${timeText}</span>` : ''}
             </div>
@@ -4532,7 +4991,8 @@ function resumeGame(key) {
         color: myColor === 'w' ? 'white' : 'black',
         time: timeControl > 0 ? timeControl / 60000 : 0,
         botDifficulty: botDifficulty,
-        botEloOverride: botEloOverride
+        botEloOverride: botEloOverride,
+        localAutoRotate: save.localAutoRotate
     };
 
     game.reset();
@@ -4542,7 +5002,17 @@ function resumeGame(key) {
         game.load(save.fen);
     }
 
-    boardFlipped = (myColor === 'b');
+    // Local pass-and-play: myColor tracks the side to move, and rotation
+    // follows the saved preference.
+    if (gameMode === 'local') {
+        localAutoRotate = save.localAutoRotate !== undefined ? !!save.localAutoRotate : true;
+        myColor = game.turn();
+        boardFlipped = localAutoRotate && (myColor === 'b');
+        const rotateInput = document.getElementById('rotate-toggle-input');
+        if (rotateInput) rotateInput.checked = localAutoRotate;
+    } else {
+        boardFlipped = (myColor === 'b');
+    }
     lastMove = null;
     viewIndex = null;
     isBotThinking = false;
@@ -4900,30 +5370,42 @@ async function saveGameToHistory(result, reason) {
             return;
         }
 
+        // Local pass-and-play: file under the "solo" tab so it shows
+        // alongside bot games. Result is recorded from White's perspective.
+        const isLocal = gameMode === 'local';
+        const recordMode = isLocal ? 'solo' : gameMode;
+        const recordOpponent = isLocal
+            ? 'Multijoueur local'
+            : (gameMode === 'solo' ? `Bot (${botEloOverride || getEloForDifficulty(botDifficulty)})` : opponentName);
+        const recordMyColor = isLocal ? 'w' : myColor;
+        const recordBotElo = (gameMode === 'solo' && !isLocal)
+            ? (botEloOverride || getEloForDifficulty(botDifficulty))
+            : null;
+
         const record = {
             player: myName,
-            opponent: gameMode === 'solo' ? `Bot (${botEloOverride || getEloForDifficulty(botDifficulty)})` : opponentName,
-            mode: gameMode,
+            opponent: recordOpponent,
+            mode: recordMode,
             result: result,
             reason: reason || null,
             pgn: pgn,
             final_fen: fen,
-            my_color: myColor,
+            my_color: recordMyColor,
             move_count: moves.length,
             time_control: timeControl,
-            bot_elo: gameMode === 'solo' ? (botEloOverride || getEloForDifficulty(botDifficulty)) : null,
+            bot_elo: recordBotElo,
             played_at: new Date().toISOString()
         };
 
-        console.log('saveGameToHistory: inserting', record.mode, record.result);
+        console.log('saveGameToHistory: inserting', record.mode, record.result, isLocal ? '(local)' : '');
         const { data, error } = await supabaseClient.from('game_history').insert(record).select();
         if (error) {
             console.error('saveGameToHistory Supabase error:', error);
         } else {
             console.log('saveGameToHistory: saved successfully, id:', data?.[0]?.id);
         }
-        // Invalidate cache
-        ghCache[gameMode] = null;
+        // Invalidate cache for the tab the record went into
+        ghCache[recordMode] = null;
     } catch (e) {
         console.error('saveGameToHistory exception:', e);
     }
@@ -5031,12 +5513,22 @@ function renderHistoryGames(games, tab) {
             if (g.result === 'win') displayResult = 'loss';
             else if (g.result === 'loss') displayResult = 'win';
         }
+        const isLocalGame = g.opponent === 'Multijoueur local';
         const displayOpponent = isFlipped ? g.player : g.opponent;
         const displayColor = isFlipped ? (g.my_color === 'w' ? 'b' : 'w') : g.my_color;
 
-        // Result badge
-        const badgeClass = displayResult === 'win' ? 'win' : displayResult === 'loss' ? 'loss' : 'draw';
-        const badgeText = displayResult === 'win' ? 'Victoire' : displayResult === 'loss' ? 'Défaite' : 'Nul';
+        // Result badge — for local games, frame it as "Blancs/Noirs win" rather
+        // than "Victoire/Défaite", since there's no me/opponent in pass-and-play.
+        let badgeClass, badgeText;
+        if (isLocalGame) {
+            badgeClass = displayResult === 'draw' ? 'draw' : 'win';
+            if (displayResult === 'win')      badgeText = 'Blancs gagnent';
+            else if (displayResult === 'loss') badgeText = 'Noirs gagnent';
+            else                               badgeText = 'Nul';
+        } else {
+            badgeClass = displayResult === 'win' ? 'win' : displayResult === 'loss' ? 'loss' : 'draw';
+            badgeText  = displayResult === 'win' ? 'Victoire' : displayResult === 'loss' ? 'Défaite' : 'Nul';
+        }
 
         // Meta info
         const date = new Date(g.played_at);
@@ -5047,14 +5539,20 @@ function renderHistoryGames(games, tab) {
         if (g.reason === 'resign') reasonStr = ' (abandon)';
         else if (g.reason === 'timeout') reasonStr = ' (temps)';
 
+        const movesLine = isLocalGame
+            ? movesStr
+            : `${movesStr} · ${displayColor === 'w' ? 'Blancs' : 'Noirs'}`;
+        const metaLine = isLocalGame
+            ? `${displayOpponent} · ${dateStr}`
+            : `vs ${displayOpponent} · ${dateStr}`;
         card.innerHTML = `
             ${miniBoard}
             <div class="gh-game-info">
                 <div class="gh-game-result">
                     <span class="gh-result-badge ${badgeClass}">${badgeText}${reasonStr}</span>
                 </div>
-                <div class="gh-game-meta">vs ${displayOpponent} · ${dateStr}</div>
-                <div class="gh-game-moves">${movesStr} · ${displayColor === 'w' ? 'Blancs' : 'Noirs'}</div>
+                <div class="gh-game-meta">${metaLine}</div>
+                <div class="gh-game-moves">${movesLine}</div>
             </div>
             <div class="gh-game-actions">
                 <button class="gh-analyze-btn" data-game-index="${index}" title="Analyser la partie">

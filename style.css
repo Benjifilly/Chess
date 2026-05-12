@@ -782,6 +782,27 @@ button#login-btn:hover {
     background: #f59e0b;
 }
 
+.mode-badge.local {
+    display: inline-block;
+    background: #a78bfa;
+}
+
+/* Local pass-and-play mode: declutter the header.
+   The opponent block is redundant (no opponent), and the bottom status
+   already says whose turn it is. */
+body.mode-local .player-status.opponent {
+    display: none;
+}
+/* Keep the chat/kebab buttons anchored to the right even when the opponent
+   block is hidden (flex justify-content: space-between collapses otherwise). */
+body.mode-local #game-screen header .settings-fixed-container {
+    margin-left: auto;
+}
+body.mode-local .footer-header .player-status.me {
+    font-size: 15px;
+    opacity: 0.85;
+}
+
 /* Online Dot */
 .online-dot {
     display: inline-block;
@@ -1262,8 +1283,9 @@ footer {
 }
 
 @media all and (display-mode: standalone) {
+    /* Respect iOS Home Indicator safe-area: keep the inset, don't override it. */
     footer {
-        padding-bottom: 15px;
+        padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
     }
 
     .chat-input-area {
@@ -2293,6 +2315,11 @@ footer {
     color: #4a90e2;
 }
 
+.saved-game-mode .mode-tag.local {
+    background: rgba(167, 139, 250, 0.2);
+    color: #a78bfa;
+}
+
 .saved-game-mode .elo-tag {
     font-size: 11px;
     opacity: 0.5;
@@ -2823,7 +2850,8 @@ footer {
 /* ===== LAST MATCH SECTION ===== */
 .last-match-section {
     position: fixed;
-    bottom: 28px;
+    /* iOS PWA: keep clear of the Home Indicator (~34px). */
+    bottom: calc(20px + env(safe-area-inset-bottom, 0px));
     left: 0;
     right: 0;
     display: flex;
@@ -5501,4 +5529,337 @@ footer {
         max-height: 92dvh !important;
         overflow-y: auto;
     }
+}
+
+/* =================================================================
+   TOGGLE SWITCH (réutilisable)
+================================================================= */
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 46px;
+    height: 26px;
+    flex-shrink: 0;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+.toggle-switch input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+}
+.toggle-switch .toggle-track {
+    position: absolute;
+    inset: 0;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    transition: background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.25);
+    display: block;
+}
+.toggle-switch .toggle-thumb {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #f5f5f5;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35),
+                0 0 0 0 rgba(136, 176, 75, 0);
+    transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1),
+                background-color 0.25s ease,
+                box-shadow 0.25s ease;
+    will-change: transform;
+}
+.toggle-switch input:checked + .toggle-track {
+    background: var(--accent);
+    border-color: color-mix(in srgb, var(--accent), white 12%);
+}
+.toggle-switch input:checked + .toggle-track .toggle-thumb {
+    transform: translateX(20px);
+    background: #ffffff;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35),
+                0 0 0 4px rgba(136, 176, 75, 0.18);
+}
+.toggle-switch:active .toggle-thumb {
+    width: 22px;
+}
+.toggle-switch input:checked + .toggle-track:active .toggle-thumb {
+    transform: translateX(16px);
+}
+/* Compact variant for dropdowns */
+.toggle-switch-sm {
+    width: 40px;
+    height: 22px;
+}
+.toggle-switch-sm .toggle-thumb {
+    width: 16px;
+    height: 16px;
+    top: 2px;
+    left: 2px;
+}
+.toggle-switch-sm input:checked + .toggle-track .toggle-thumb {
+    transform: translateX(18px);
+}
+
+/* =================================================================
+   SUB-MODE TOGGLE (Bot / Local) inside the Solo card
+================================================================= */
+.menu-submode-toggle {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    background: rgba(0, 0, 0, 0.22);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 14px;
+    padding: 4px;
+    margin: 4px 0 18px;
+    overflow: hidden;
+}
+.menu-submode-slider {
+    position: absolute;
+    top: 4px;
+    bottom: 4px;
+    left: 4px;
+    width: calc(50% - 4px);
+    background: linear-gradient(180deg,
+                                color-mix(in srgb, var(--accent), white 6%) 0%,
+                                var(--accent) 100%);
+    border-radius: 10px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25),
+                inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    will-change: transform;
+    z-index: 0;
+}
+.menu-submode-toggle[data-active="local"] .menu-submode-slider {
+    transform: translateX(100%);
+}
+.menu-submode-btn {
+    /* Override the global `button { padding, border-radius, accent bg }` */
+    position: relative;
+    z-index: 1;
+    width: auto !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 9px 8px !important;
+    background: transparent !important;
+    border: none !important;
+    border-radius: 10px !important;
+    box-shadow: none !important;
+    color: rgba(255, 255, 255, 0.55);
+    font-family: 'Fredoka', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: color 0.25s ease, background-color 0.2s ease !important;
+    filter: none !important;
+}
+.menu-submode-btn:hover {
+    background: rgba(255, 255, 255, 0.04) !important;
+    filter: none !important;
+}
+.menu-submode-btn:active {
+    transform: none !important;
+}
+.menu-submode-btn.active:hover {
+    background: transparent !important; /* slider already paints the accent fill */
+}
+.menu-submode-btn.active {
+    color: #ffffff;
+}
+.menu-submode-btn svg {
+    flex-shrink: 0;
+    opacity: 0.85;
+}
+
+/* Sub-mode panels: simple swap */
+.menu-submode-panel.hidden {
+    display: none;
+}
+
+/* Hint paragraph inside the local panel */
+.menu-local-hint {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-color);
+    opacity: 0.65;
+    padding: 12px 14px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 12px;
+}
+
+/* Toggle row inside a menu setting group */
+.menu-toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 14px 16px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 12px;
+    transition: background 0.2s ease;
+}
+.menu-toggle-row:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+.menu-toggle-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+.menu-toggle-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-color);
+}
+.menu-toggle-sub {
+    font-size: 12px;
+    color: var(--text-color);
+    opacity: 0.55;
+    font-weight: 400;
+}
+
+/* =================================================================
+   DROPDOWN TOGGLE ITEM (kebab menu)
+================================================================= */
+.dropdown-toggle-item {
+    cursor: default;
+    justify-content: flex-start;
+    gap: 12px;
+}
+.dropdown-toggle-item .dropdown-toggle-text {
+    flex: 1;
+}
+.dropdown-toggle-item:hover {
+    background: rgba(128, 128, 128, 0.06);
+}
+
+/* =================================================================
+   PAWN PROMOTION POPOVER
+================================================================= */
+.promo-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    z-index: 4000;
+    animation: promoOverlayIn 0.18s ease-out;
+}
+@keyframes promoOverlayIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+.promo-popover {
+    position: fixed;
+    z-index: 4001;
+    display: flex;
+    flex-direction: column;
+    /* Use the theme's card background + accent border so it matches the rest
+       of the UI no matter which palette the user picked. */
+    background: var(--card-bg);
+    border: 1px solid color-mix(in srgb, var(--accent), transparent 70%);
+    border-radius: 12px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5),
+                0 0 0 1px rgba(0, 0, 0, 0.25);
+    overflow: hidden;
+    animation: promoPopIn 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transform-origin: top center;
+}
+.promo-popover.stack-up {
+    transform-origin: bottom center;
+}
+@keyframes promoPopIn {
+    from { opacity: 0; transform: scale(0.85); }
+    to { opacity: 1; transform: scale(1); }
+}
+.promo-piece {
+    /* Override the global `button` rule (padding, accent bg, etc.) */
+    width: 100% !important;
+    aspect-ratio: 1 / 1;
+    height: auto;
+    padding: 0 !important;
+    margin: 0 !important;
+    /* Theme-driven background derived from the user-chosen palette */
+    background: color-mix(in srgb, var(--bg-color), white 4%) !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.15s ease !important;
+    transform: none !important;
+    filter: none !important;
+    -webkit-tap-highlight-color: transparent;
+}
+.promo-piece + .promo-piece {
+    border-top: 1px solid color-mix(in srgb, var(--text-color), transparent 90%) !important;
+}
+.promo-piece img {
+    width: 72%;
+    height: 72%;
+    object-fit: contain;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-drag: none;
+    transition: none;
+    transform: none !important;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35)) !important;
+}
+.promo-piece:hover {
+    background: color-mix(in srgb, var(--accent), transparent 75%) !important;
+    filter: none !important;
+    transform: none !important;
+}
+.promo-piece:hover img {
+    transform: none !important;
+    width: 72%;
+    height: 72%;
+}
+.promo-piece:active {
+    background: color-mix(in srgb, var(--accent), transparent 55%) !important;
+    transform: none !important;
+    filter: none !important;
+}
+.promo-cancel {
+    width: 100% !important;
+    height: 34px !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: color-mix(in srgb, var(--bg-color), black 10%) !important;
+    border: none !important;
+    border-top: 1px solid color-mix(in srgb, var(--text-color), transparent 88%) !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    font-size: 22px !important;
+    font-weight: 400 !important;
+    color: color-mix(in srgb, var(--text-color), transparent 40%) !important;
+    cursor: pointer;
+    line-height: 1 !important;
+    transition: background 0.15s ease, color 0.15s ease !important;
+    transform: none !important;
+    filter: none !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.promo-cancel:hover {
+    background: rgba(255, 107, 107, 0.18) !important;
+    color: #ff8a8a !important;
+    filter: none !important;
+    transform: none !important;
 }
