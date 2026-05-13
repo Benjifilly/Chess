@@ -502,6 +502,13 @@ button#login-btn:hover {
     transition: opacity 0.3s ease, visibility 0.3s;
 }
 
+/* canvas-confetti injects its own <canvas> — make sure it floats above modals */
+canvas[aria-hidden="true"],
+canvas.confetti-canvas {
+    z-index: 9999 !important;
+    pointer-events: none !important;
+}
+
 .modal-content {
     background: var(--card-bg);
     padding: 30px;
@@ -788,19 +795,174 @@ button#login-btn:hover {
 }
 
 /* Local pass-and-play mode: declutter the header.
-   The opponent block is redundant (no opponent), and the bottom status
-   already says whose turn it is. */
-body.mode-local .player-status.opponent {
+   The opponent block carries no useful info by default, but when a time
+   control is active we still need to surface the inactive timer there. */
+body.mode-local .player-status.opponent #opponent-name,
+body.mode-local .player-status.opponent .indicator,
+body.mode-local .player-status.opponent .reaction-emoji,
+body.mode-local .player-status.opponent .mode-badge {
+    display: none;
+}
+/* Hide the entire opponent block only when there is no timer to show. */
+body.mode-local.local-no-timer .player-status.opponent {
     display: none;
 }
 /* Keep the chat/kebab buttons anchored to the right even when the opponent
-   block is hidden (flex justify-content: space-between collapses otherwise). */
-body.mode-local #game-screen header .settings-fixed-container {
+   block is empty/hidden (flex justify-content: space-between collapses otherwise). */
+body.mode-local.local-no-timer #game-screen header .settings-fixed-container {
     margin-left: auto;
+}
+/* When the opponent block stays visible (timed local game), give it the right
+   styling: a clear "opposing side" pill with just the timer */
+body.mode-local:not(.local-no-timer) .player-status.opponent {
+    gap: 6px;
+}
+body.mode-local:not(.local-no-timer) .player-status.opponent::before {
+    content: attr(data-side-label);
+    font-size: 13px;
+    font-weight: 600;
+    opacity: 0.7;
+    margin-right: 2px;
 }
 body.mode-local .footer-header .player-status.me {
     font-size: 15px;
     opacity: 0.85;
+    white-space: nowrap;
+    flex-shrink: 1;
+    min-width: 0;
+}
+body.mode-local .footer-header .player-status.me #my-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* =================================================================
+   HISTORY CONTROLS — undo/redo (live) vs prev/next (browse)
+================================================================= */
+
+/* Group the two pairs visually. We render them as two distinct pills. */
+.history-controls {
+    align-items: center;
+    gap: 6px;
+}
+
+/* Subtle pill background to group undo+redo together, separately from prev+next */
+body.mode-local .history-controls #btn-undo,
+body.mode-local .history-controls #btn-redo {
+    background: color-mix(in srgb, var(--accent), transparent 82%);
+    color: var(--accent);
+    border: 1px solid color-mix(in srgb, var(--accent), transparent 65%);
+    width: 38px;
+    height: 38px;
+    box-shadow: none;
+}
+body.mode-local .history-controls #btn-undo:not(:disabled):hover,
+body.mode-local .history-controls #btn-redo:not(:disabled):hover {
+    background: color-mix(in srgb, var(--accent), transparent 65%);
+    color: #fff;
+}
+body.mode-local .history-controls #btn-undo:not(:disabled):active,
+body.mode-local .history-controls #btn-redo:not(:disabled):active {
+    transform: scale(0.94);
+}
+.history-controls #btn-undo:disabled,
+.history-controls #btn-redo:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+/* Prev/next stay as the neutral icon-btn (default look), just slightly smaller
+   in local mode to make the visual hierarchy clearer. */
+body.mode-local .history-controls #btn-prev,
+body.mode-local .history-controls #btn-next {
+    width: 30px;
+    height: 30px;
+    opacity: 0.7;
+}
+body.mode-local .history-controls #btn-prev svg,
+body.mode-local .history-controls #btn-next svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* A vertical divider between the two pairs */
+body.mode-local .history-controls #btn-redo + #btn-prev {
+    margin-left: 4px;
+    position: relative;
+}
+body.mode-local .history-controls #btn-redo + #btn-prev::before {
+    content: '';
+    position: absolute;
+    left: -6px;
+    top: 18%;
+    bottom: 18%;
+    width: 1px;
+    background: rgba(255, 255, 255, 0.12);
+}
+
+body.mode-local .footer-header {
+    gap: 10px;
+    flex-wrap: nowrap;
+}
+body.mode-local .history-controls {
+    flex-shrink: 0;
+}
+
+/* --- Desktop sidebar: stack the 4 buttons in a 2x2 grid to save horizontal
+   space (the footer panel is narrower than on mobile). --- */
+@media (min-width: 1024px) {
+    body.mode-local .history-controls {
+        display: grid;
+        grid-template-columns: auto auto;
+        grid-template-rows: auto auto;
+        gap: 6px;
+        align-items: center;
+        justify-items: center;
+    }
+    body.mode-local .history-controls #btn-undo { grid-area: 1 / 1; }
+    body.mode-local .history-controls #btn-redo { grid-area: 1 / 2; }
+    body.mode-local .history-controls #btn-prev { grid-area: 2 / 1; }
+    body.mode-local .history-controls #btn-next { grid-area: 2 / 2; }
+    /* Divider doesn't make sense in 2x2 grid */
+    body.mode-local .history-controls #btn-redo + #btn-prev::before {
+        display: none;
+    }
+    body.mode-local .history-controls #btn-redo + #btn-prev {
+        margin-left: 0;
+    }
+}
+
+/* --- Small screens: tighten the spacing so the 4 buttons + "Tour des Blancs"
+   never wrap. --- */
+@media (max-width: 480px) {
+    body.mode-local .footer-header .player-status.me {
+        font-size: 13px;
+        padding: 6px 10px;
+    }
+    body.mode-local .history-controls #btn-undo,
+    body.mode-local .history-controls #btn-redo {
+        width: 34px;
+        height: 34px;
+    }
+    body.mode-local .history-controls #btn-undo svg,
+    body.mode-local .history-controls #btn-redo svg {
+        width: 18px;
+        height: 18px;
+    }
+    body.mode-local .history-controls #btn-prev,
+    body.mode-local .history-controls #btn-next {
+        width: 28px;
+        height: 28px;
+    }
+    body.mode-local .history-controls #btn-prev svg,
+    body.mode-local .history-controls #btn-next svg {
+        width: 16px;
+        height: 16px;
+    }
+    body.mode-local .history-controls {
+        gap: 4px;
+    }
 }
 
 /* Online Dot */
@@ -2570,12 +2732,25 @@ footer {
 }
 
 .menu-mode-card.expanded .menu-card-settings {
-    max-height: 420px;
+    /* Scale with the viewport so the launch button is never cut off on iPhone
+       when the local sub-panel adds time-buttons + rotation toggle. */
+    max-height: calc(100dvh - 200px);
     opacity: 1;
     padding: 0 22px 22px 22px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
     transition: max-height 0.45s cubic-bezier(0.4, 0, 0.2, 1),
         padding 0.45s cubic-bezier(0.4, 0, 0.2, 1),
         opacity 0.3s ease 0.1s;
+}
+.menu-mode-card.expanded .menu-card-settings::-webkit-scrollbar {
+    width: 4px;
+}
+.menu-mode-card.expanded .menu-card-settings::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 2px;
 }
 
 .menu-mode-card {

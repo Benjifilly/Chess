@@ -33,6 +33,10 @@ let isPageLoadingComplete = false; // Flag to suppress modal display on page rel
 let localAutoRotate = true;
 let isPromotionPending = false; // Lock during promotion picker
 
+// Undo/redo stack for local pass-and-play.
+// Each entry: { move: <chess.js verbose move>, timeSnapshot: { white, black, last } }
+let localRedoStack = [];
+
 // Anti-spam for system notices (leave / etc.)
 let lastSystemNoticeAt = 0;
 
@@ -904,18 +908,16 @@ function setModalSubmode(sub, skipPanelToggle) {
         localOpts.style.display = (sub === 'local') ? '' : 'none';
     }
 
-    // Color, time and difficulty are irrelevant in local mode.
+    // In local sub-mode, hide color + difficulty (irrelevant). Keep TIME
+    // visible so the user can still pick 3/5/10/∞ for pass-and-play.
     if (!skipPanelToggle && gameMode === 'solo') {
         const colorBlock = document.querySelector('#new-game-modal .color-choices');
         const colorLabel = colorBlock ? colorBlock.previousElementSibling : null;
-        const timeBlock  = document.querySelector('#new-game-modal .time-choices');
-        const timeLabel  = timeBlock ? timeBlock.previousElementSibling : null;
         const hide = (sub === 'local');
-        [colorBlock, colorLabel, timeBlock, timeLabel].forEach(el => {
+        [colorBlock, colorLabel].forEach(el => {
             if (el) el.style.display = hide ? 'none' : '';
         });
         if (diffSection) {
-            // Drive both display and the .visible expand-class to keep transitions clean
             if (hide) {
                 diffSection.style.display = 'none';
                 diffSection.classList.remove('visible');
@@ -999,6 +1001,10 @@ function updateModeBadge() {
     });
     // Toggle a body-level class so CSS can declutter the header in local mode
     document.body.classList.toggle('mode-local', gameMode === 'local');
+    document.body.classList.toggle('local-no-timer',
+        gameMode === 'local' && (!timeControl || timeControl === 0));
+    // Refresh undo/redo buttons (they're local-only)
+    updateLocalUndoButtons();
 }
 
 function updateOpponentName() {
@@ -1006,11 +1012,16 @@ function updateOpponentName() {
         opponentNameEl.innerHTML = 'Bot <img src="images/benji_robot.png" style="width: 24px; vertical-align: middle; margin-left: 5px;">';
         if (myNameEl && myName) myNameEl.textContent = myName;
     } else if (gameMode === 'local') {
-        // In local mode the top opponent block is hidden via CSS (.mode-local).
-        // The bottom line just shows who plays now.
+        // The bottom line shows who plays now. The top opponent block is
+        // either fully hidden (no timer) or shows the inactive side's clock.
         const turnColor = game ? game.turn() : 'w';
         if (myNameEl) {
             myNameEl.textContent = turnColor === 'w' ? 'Tour des Blancs' : 'Tour des Noirs';
+        }
+        // Label the opposite side on the opponent block (read by CSS ::before).
+        const opponentBlock = document.querySelector('#game-screen header .player-status.opponent');
+        if (opponentBlock) {
+            opponentBlock.dataset.sideLabel = turnColor === 'w' ? 'Noirs' : 'Blancs';
         }
     } else {
         opponentNameEl.textContent = myName === 'Benji' ? 'Sanaa' : 'Benji';
@@ -1086,12 +1097,14 @@ function selectColor(color) {
 
 async function confirmNewGame() {
     // Solo card with Local sub-mode: delegate to the dedicated pass-and-play
-    // starter — color/time/difficulty don't apply here.
+    // starter — color/difficulty don't apply, but we keep the time-control
+    // chosen in the modal's standard time row.
     if (gameMode === 'solo' && modalSubmode === 'local') {
         const rotInput = document.getElementById('modal-local-rotate-toggle');
         const rotate = rotInput ? !!rotInput.checked : true;
+        const timeMin = (typeof selectedTimeChoice === 'number') ? selectedTimeChoice : 0;
         closeModal('new-game-modal');
-        startLocalGame(rotate);
+        startLocalGame(rotate, timeMin);
         return;
     }
 
@@ -2709,6 +2722,9 @@ async function makeMove(from, to, dragEvent = null) {
             if (localAutoRotate) {
                 boardFlipped = (myColor === 'b');
             }
+            // A fresh move invalidates the redo stack.
+            clearLocalRedoStack();
+            updateLocalUndoButtons();
         }
 
         renderBoard();
@@ -2976,23 +2992,33 @@ function showGameOver(winner, context = {}) {
     clearGameSave(gameMode);
 
     gameOverModal.classList.remove('hidden');
+    // Pick the confetti style that matches the outcome.
+    const reason = context && context.reason;
+    let confettiKind = 'checkmate';
+    if (winner === 'draw')         confettiKind = 'draw';
+    else if (reason === 'resign')  confettiKind = 'resign';
+    else if (reason === 'timeout') confettiKind = 'timeout';
+
     if (winner === 'draw') {
         gameOverTitle.textContent = "Match Nul !";
         gameOverMessage.textContent = gameMode === 'local'
             ? "Partie nulle. Bien joué à vous deux !"
             : "On est trop connectés, impossible de se départager ! 🤝";
+        triggerConfetti(confettiKind);
     } else if (gameMode === 'local') {
         // Pass-and-play: announce the winning side, no "me/opponent" perspective.
         gameOverTitle.textContent = `Les ${winner} gagnent ! 🎉`;
-        gameOverMessage.textContent = context && context.reason === 'resign'
+        gameOverMessage.textContent = reason === 'resign'
             ? `${winner === 'Blancs' ? 'Les Noirs' : 'Les Blancs'} ont abandonné.`
-            : 'Échec et mat. GG !';
-        triggerConfetti();
+            : reason === 'timeout'
+                ? `${winner === 'Blancs' ? 'Les Noirs' : 'Les Blancs'} ont manqué de temps.`
+                : 'Échec et mat. GG !';
+        triggerConfetti(confettiKind);
     } else {
         const iWon = (winner === 'Blancs' && myColor === 'w') || (winner === 'Noirs' && myColor === 'b');
         const opponentName = myName === 'Benji' ? 'Sanaa' : 'Benji';
 
-        if (context && context.reason === 'resign') {
+        if (reason === 'resign') {
             gameOverTitle.textContent = iWon ? 'Victoire par démission' : 'Défaite par démission';
             if (iWon) {
                 gameOverMessage.textContent = `${opponentName} a abandonné la partie.`;
@@ -3009,8 +3035,8 @@ function showGameOver(winner, context = {}) {
         }
 
         if (iWon) {
-            triggerConfetti();
-            // Victory sound
+            // Resign / timeout aren't celebratory wins — no confetti there.
+            triggerConfetti(confettiKind);
             try { playSound('capture'); } catch (e) { }
         }
     }
@@ -3033,7 +3059,7 @@ async function replayGame() {
     const params = lastGameParams;
 
     if (params.mode === 'local') {
-        // Pass-and-play replay
+        // Pass-and-play replay (same time + rotation settings)
         gameMode = 'local';
         localAutoRotate = !!params.localAutoRotate;
 
@@ -3044,14 +3070,16 @@ async function replayGame() {
         myColor = 'w';
         boardFlipped = false;
 
-        timeControl = 0;
-        whiteTimeRemaining = 0;
-        blackTimeRemaining = 0;
+        const replayMinutes = typeof params.time === 'number' ? params.time : 0;
+        timeControl = replayMinutes * 60 * 1000;
+        whiteTimeRemaining = timeControl;
+        blackTimeRemaining = timeControl;
         lastMoveTimestamp = Date.now();
 
         const rotateInput = document.getElementById('rotate-toggle-input');
         if (rotateInput) rotateInput.checked = localAutoRotate;
 
+        clearLocalRedoStack();
         renderBoard();
         updateStatus();
         startTimer();
@@ -3161,27 +3189,105 @@ async function replayGame() {
     }
 }
 
-function triggerConfetti() {
-    var duration = 3 * 1000;
-    var animationEnd = Date.now() + duration;
-    var defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 300 };
+/**
+ * Trigger a confetti burst tuned to the game outcome.
+ *
+ * Variants:
+ *   - 'checkmate' : double burst + golden cannons (default if no kind passed)
+ *   - 'draw'      : gentle silver ribbons drifting down
+ *   - 'resign'    : nothing (defeat by giving up — no celebration)
+ *   - 'timeout'   : same as resign
+ *   - 'win'       : alias of checkmate (kept for older call sites)
+ */
+function triggerConfetti(kind) {
+    if (typeof confetti !== 'function') return;
+    if (kind === 'resign' || kind === 'timeout') return; // no party for forfeits
 
-    function randomInRange(min, max) {
-        return Math.random() * (max - min) + min;
+    if (kind === 'draw') {
+        // Slow silver/grey ribbons — visually says "it's a tie".
+        const colors = ['#c0c5cc', '#9aa0a6', '#dfe1e5', '#e8eaed'];
+        confetti({
+            particleCount: 60,
+            spread: 100,
+            startVelocity: 22,
+            ticks: 220,
+            gravity: 0.55,
+            decay: 0.92,
+            scalar: 0.9,
+            shapes: ['circle'],
+            colors,
+            origin: { x: 0.5, y: 0.3 },
+            zIndex: 9999
+        });
+        setTimeout(() => confetti({
+            particleCount: 30,
+            spread: 70,
+            startVelocity: 18,
+            ticks: 180,
+            gravity: 0.5,
+            colors,
+            origin: { x: 0.5, y: 0.4 },
+            zIndex: 9999
+        }), 350);
+        return;
     }
 
-    var interval = setInterval(function () {
-        var timeLeft = animationEnd - Date.now();
+    // Default / 'checkmate' / 'win' — theatrical celebration.
+    const goldPalette = ['#ffd700', '#ffea70', '#ffae00', '#ffffff', '#fff7c2'];
+    const accentPalette = [
+        getComputedStyle(document.documentElement)
+            .getPropertyValue('--accent').trim() || '#88B04B',
+        '#ffd700', '#ffffff'
+    ];
 
-        if (timeLeft <= 0) {
-            return clearInterval(interval);
-        }
+    // Initial big burst from both sides
+    confetti({
+        particleCount: 90,
+        angle: 60,
+        spread: 65,
+        startVelocity: 55,
+        origin: { x: 0, y: 0.7 },
+        colors: goldPalette,
+        zIndex: 9999,
+        scalar: 1.1
+    });
+    confetti({
+        particleCount: 90,
+        angle: 120,
+        spread: 65,
+        startVelocity: 55,
+        origin: { x: 1, y: 0.7 },
+        colors: goldPalette,
+        zIndex: 9999,
+        scalar: 1.1
+    });
 
-        var particleCount = 50 * (timeLeft / duration);
-        // since particles fall down, start a bit higher than random
-        confetti(Object.assign({}, defaults, { particleCount, origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 } }));
-        confetti(Object.assign({}, defaults, { particleCount, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 } }));
-    }, 250);
+    // Sustained streamers across the top for ~3s
+    const duration = 3000;
+    const end = Date.now() + duration;
+    const interval = setInterval(() => {
+        const left = end - Date.now();
+        if (left <= 0) return clearInterval(interval);
+        const particleCount = 28 * (left / duration);
+        confetti({
+            particleCount,
+            spread: 360,
+            startVelocity: 28,
+            ticks: 70,
+            origin: { x: 0.1 + Math.random() * 0.2, y: Math.random() - 0.2 },
+            colors: accentPalette,
+            zIndex: 9999
+        });
+        confetti({
+            particleCount,
+            spread: 360,
+            startVelocity: 28,
+            ticks: 70,
+            origin: { x: 0.7 + Math.random() * 0.2, y: Math.random() - 0.2 },
+            colors: accentPalette,
+            zIndex: 9999
+        });
+    }, 220);
 }
 
 async function proposeDraw() {
@@ -3386,6 +3492,90 @@ document.getElementById('flip-btn').addEventListener('click', () => {
     });
 })();
 
+// ---------- Local pass-and-play: undo / redo ----------
+
+function updateLocalUndoButtons() {
+    const undoBtn = document.getElementById('btn-undo');
+    const redoBtn = document.getElementById('btn-redo');
+    if (!undoBtn || !redoBtn) return;
+    const moves = game.history();
+    undoBtn.disabled = moves.length === 0 || gameMode !== 'local';
+    redoBtn.disabled = localRedoStack.length === 0 || gameMode !== 'local';
+}
+
+function clearLocalRedoStack() {
+    localRedoStack = [];
+    updateLocalUndoButtons();
+}
+
+function performLocalUndo() {
+    if (gameMode !== 'local') return;
+    if (viewIndex !== null) return; // refuse while browsing history
+    const undone = game.undo();
+    if (!undone) return;
+    // Push to redo stack with the SAN so we can replay exactly the same coup
+    localRedoStack.push(undone);
+
+    // Rebuild client-side state.
+    selectedSquare = null;
+    lastMove = null;
+    const history = game.history({ verbose: true });
+    if (history.length > 0) {
+        const last = history[history.length - 1];
+        lastMove = { from: last.from, to: last.to };
+    }
+    myColor = game.turn();
+    if (localAutoRotate) boardFlipped = (myColor === 'b');
+    lastMoveTimestamp = Date.now();
+
+    renderBoard();
+    updateStatus();
+    updateOpponentName();
+    triggerEvalForPosition(game.fen());
+    saveGameState();
+    updateLocalUndoButtons();
+    try { playSound('move'); } catch (e) {}
+}
+
+function performLocalRedo() {
+    if (gameMode !== 'local') return;
+    if (viewIndex !== null) return;
+    if (localRedoStack.length === 0) return;
+    const m = localRedoStack.pop();
+    const applied = game.move({
+        from: m.from,
+        to: m.to,
+        promotion: m.promotion || undefined
+    });
+    if (!applied) {
+        updateLocalUndoButtons();
+        return;
+    }
+    selectedSquare = null;
+    lastMove = { from: applied.from, to: applied.to };
+    myColor = game.turn();
+    if (localAutoRotate) boardFlipped = (myColor === 'b');
+    lastMoveTimestamp = Date.now();
+
+    renderBoard();
+    updateStatus();
+    updateOpponentName();
+    triggerEvalForPosition(game.fen());
+    saveGameState();
+    updateLocalUndoButtons();
+    try {
+        if (applied.captured) playSound('capture');
+        else playSound('move');
+    } catch (e) {}
+}
+
+(function wireUndoRedo() {
+    const undoBtn = document.getElementById('btn-undo');
+    const redoBtn = document.getElementById('btn-redo');
+    if (undoBtn) undoBtn.addEventListener('click', (e) => { e.stopPropagation(); performLocalUndo(); });
+    if (redoBtn) redoBtn.addEventListener('click', (e) => { e.stopPropagation(); performLocalRedo(); });
+})();
+
 document.getElementById('reset-btn').addEventListener('click', () => {
     openNewGameModal();
 });
@@ -3404,7 +3594,7 @@ if ('serviceWorker' in navigator) {
 // Gestion de la visibilité (PWA/Mobile) pour rafraîchir l'état au retour
 document.addEventListener('visibilitychange', async () => {
     if (document.visibilityState === 'visible') {
-        console.log('App is back in foreground');
+        console.log('App is back in foreground (mode=' + gameMode + ')');
 
         // --- Solo mode: preserve local state, skip Supabase sync ---
         if (gameMode === 'solo') {
@@ -3416,6 +3606,16 @@ document.addEventListener('visibilitychange', async () => {
             if (game.turn() !== myColor && !game.game_over() && !isBotThinking) {
                 makeBotMove();
             }
+            return;
+        }
+
+        // --- Local pass-and-play: preserve local state, never touch Supabase ---
+        // (Without this, the Duo branch below would refetch a stale Duo state
+        //  and overwrite the local game — making it look like "the bot" took over.)
+        if (gameMode === 'local') {
+            renderBoard();
+            updateStatus(false);
+            startTimer();
             return;
         }
 
@@ -3969,6 +4169,7 @@ let menuDuoColor = null;
 let menuDuoTime = 5; // Default 5 minutes for duo
 let menuSubmode = 'bot'; // 'bot' | 'local' — sub-mode of the Solo card
 let menuLocalRotate = true; // Pass-and-play rotation default
+let menuLocalTime = 0;      // Pass-and-play time per player in minutes (0 = infinite)
 
 // --- Show / Hide Main Menu ---
 
@@ -4029,6 +4230,13 @@ function restoreMenuSettings() {
         if (typeof s.localAutoRotate === 'boolean') {
             menuLocalRotate = s.localAutoRotate;
             if (menuLocalRotateToggle) menuLocalRotateToggle.checked = s.localAutoRotate;
+        }
+        // Restore time choice for the local pass-and-play sub-panel
+        if (s.mode === 'local' && typeof s.time === 'number') {
+            menuLocalTime = s.time;
+            document.querySelectorAll('#menu-local-time-select .menu-time-btn').forEach(btn => {
+                btn.classList.toggle('selected', parseInt(btn.dataset.time) === menuLocalTime);
+            });
         }
 
         // Restore Solo Elo
@@ -4212,6 +4420,17 @@ function setupMenuListeners() {
         });
     }
 
+    // Local time-control buttons
+    document.querySelectorAll('#menu-local-time-select .menu-time-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            menuLocalTime = parseInt(btn.dataset.time);
+            document.querySelectorAll('#menu-local-time-select .menu-time-btn')
+                .forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+        });
+    });
+
     // Launch Local Multiplayer (Pass-and-Play)
     if (menuLocalLaunchBtn) {
         menuLocalLaunchBtn.addEventListener('click', (e) => {
@@ -4359,7 +4578,7 @@ function setMenuSubmode(mode) {
     if (localPanel) localPanel.classList.toggle('hidden', mode !== 'local');
 }
 
-function startLocalGame(rotateOverride) {
+function startLocalGame(rotateOverride, timeOverride) {
     gameMode = 'local';
     if (typeof rotateOverride === 'boolean') {
         localAutoRotate = rotateOverride;
@@ -4367,20 +4586,28 @@ function startLocalGame(rotateOverride) {
         localAutoRotate = !!(menuLocalRotateToggle && menuLocalRotateToggle.checked);
     }
 
+    // Resolve time per player (in minutes). 0 = infinite.
+    let timeMinutes;
+    if (typeof timeOverride === 'number') {
+        timeMinutes = timeOverride;
+    } else {
+        timeMinutes = menuLocalTime;
+    }
+
     selectedColorChoice = 'white';
-    selectedTimeChoice = 0;
+    selectedTimeChoice = timeMinutes;
 
     lastGameParams = {
         mode: 'local',
         color: 'white',
-        time: 0,
+        time: timeMinutes,
         localAutoRotate: localAutoRotate
     };
 
     localStorage.setItem('chess_new_game_settings', JSON.stringify({
         mode: 'local',
         color: 'white',
-        time: 0,
+        time: timeMinutes,
         localAutoRotate: localAutoRotate
     }));
 
@@ -4395,9 +4622,9 @@ function startLocalGame(rotateOverride) {
     myColor = 'w';
     boardFlipped = false;
 
-    timeControl = 0;
-    whiteTimeRemaining = 0;
-    blackTimeRemaining = 0;
+    timeControl = timeMinutes * 60 * 1000;
+    whiteTimeRemaining = timeControl;
+    blackTimeRemaining = timeControl;
     lastMoveTimestamp = Date.now();
 
     // Sync the kebab rotate toggle with the current state.
@@ -4411,6 +4638,7 @@ function startLocalGame(rotateOverride) {
         updateModeBadge();
         updateOpponentName();
         saveGameState();
+        clearLocalRedoStack();
     });
 }
 
@@ -5010,6 +5238,8 @@ function resumeGame(key) {
         boardFlipped = localAutoRotate && (myColor === 'b');
         const rotateInput = document.getElementById('rotate-toggle-input');
         if (rotateInput) rotateInput.checked = localAutoRotate;
+        // Resuming starts with an empty redo stack.
+        clearLocalRedoStack();
     } else {
         boardFlipped = (myColor === 'b');
     }
