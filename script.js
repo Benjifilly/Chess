@@ -3495,12 +3495,19 @@ document.getElementById('flip-btn').addEventListener('click', () => {
 // ---------- Local pass-and-play: undo / redo ----------
 
 function updateLocalUndoButtons() {
-    const undoBtn = document.getElementById('btn-undo');
-    const redoBtn = document.getElementById('btn-redo');
-    if (!undoBtn || !redoBtn) return;
+    const undoBtns = [
+        document.getElementById('btn-undo'),
+        document.getElementById('btn-undo-top')
+    ].filter(Boolean);
+    const redoBtns = [
+        document.getElementById('btn-redo'),
+        document.getElementById('btn-redo-top')
+    ].filter(Boolean);
     const moves = game.history();
-    undoBtn.disabled = moves.length === 0 || gameMode !== 'local';
-    redoBtn.disabled = localRedoStack.length === 0 || gameMode !== 'local';
+    const canUndo = !(moves.length === 0 || gameMode !== 'local');
+    const canRedo = !(localRedoStack.length === 0 || gameMode !== 'local');
+    undoBtns.forEach(b => { b.disabled = !canUndo; });
+    redoBtns.forEach(b => { b.disabled = !canRedo; });
 }
 
 function clearLocalRedoStack() {
@@ -3570,10 +3577,14 @@ function performLocalRedo() {
 }
 
 (function wireUndoRedo() {
-    const undoBtn = document.getElementById('btn-undo');
-    const redoBtn = document.getElementById('btn-redo');
-    if (undoBtn) undoBtn.addEventListener('click', (e) => { e.stopPropagation(); performLocalUndo(); });
-    if (redoBtn) redoBtn.addEventListener('click', (e) => { e.stopPropagation(); performLocalRedo(); });
+    ['btn-undo', 'btn-undo-top'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('click', (e) => { e.stopPropagation(); performLocalUndo(); });
+    });
+    ['btn-redo', 'btn-redo-top'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('click', (e) => { e.stopPropagation(); performLocalRedo(); });
+    });
 })();
 
 document.getElementById('reset-btn').addEventListener('click', () => {
