@@ -284,6 +284,7 @@
                         </button>
                     </div>
                 </div>
+
             </div>
 
         </div>
@@ -309,6 +310,12 @@
         </div>
         <!-- Top Right Actions -->
         <div class="menu-top-right-actions">
+            <button class="menu-icon-btn" onclick="openPuzzleScreen()" title="Puzzles">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M19.439 7.85c-.049.322.059.648.289.878l1.568 1.568c.47.47.706 1.087.706 1.704s-.235 1.233-.706 1.704l-1.611 1.611a.98.98 0 0 1-.837.276c-.47-.07-.802-.48-.968-.925a2.501 2.501 0 1 0-3.214 3.214c.446.166.855.497.925.968a.979.979 0 0 1-.276.837l-1.61 1.61a2.404 2.404 0 0 1-1.705.707 2.402 2.402 0 0 1-1.704-.706l-1.568-1.568a1.026 1.026 0 0 0-.877-.29c-.493.074-.84.504-1.02.968a2.5 2.5 0 1 1-3.237-3.237c.464-.18.894-.527.967-1.02a1.026 1.026 0 0 0-.289-.877l-1.568-1.568A2.402 2.402 0 0 1 2 12c0-.617.236-1.234.706-1.704L4.317 8.685a.979.979 0 0 1 .837-.276c.47.07.802.48.968.925a2.501 2.501 0 1 0 3.214-3.214c-.446-.166-.855-.497-.925-.968a.979.979 0 0 1 .276-.837l1.61-1.61A2.402 2.402 0 0 1 12 2c.617 0 1.234.236 1.704.706l1.568 1.568c.23.23.556.338.877.29.493-.074.84-.504 1.02-.968a2.5 2.5 0 1 1 3.237 3.237c-.464.18-.894.527-.967 1.02Z"/>
+                </svg>
+            </button>
             <button class="menu-icon-btn" onclick="openSettings()" title="Thèmes">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="none">
                     <path d="M12 2C6.49 2 2 6.49 2 12s4.49 10 10 10a2.5 2.5 0 0 0 2.5-2.5c0-.61-.23-1.21-.64-1.67A.528.528 0 0 1 14.25 17c0-.28.22-.5.5-.5H16c3.31 0 6-2.69 6-6C22 6.04 17.51 2 12 2zM6.5 13a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3-4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/>
@@ -329,6 +336,74 @@
         </div>
     </div>
     <!-- ==================== END MAIN MENU ==================== -->
+
+    <!-- ==================== PUZZLE SCREEN ==================== -->
+    <div id="puzzle-screen" class="hidden">
+        <header class="puzzle-screen-header">
+            <button class="puzzle-screen-back" type="button" onclick="closePuzzleScreen()" title="Retour">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="15 18 9 12 15 6"></polyline>
+                </svg>
+            </button>
+            <h1 class="puzzle-screen-title">Puzzles</h1>
+            <div class="puzzle-screen-spacer"></div>
+        </header>
+
+        <div class="puzzle-screen-body">
+            <!-- Daily puzzle featured -->
+            <div id="puzzle-featured" class="puzzle-featured hidden">
+                <div class="puzzle-featured-header">
+                    <span class="puzzle-featured-label">Puzzle du jour</span>
+                    <span class="puzzle-featured-solved hidden">Résolu</span>
+                </div>
+                <div class="puzzle-featured-meta">
+                    <span class="puzzle-featured-theme">Tactique</span>
+                    <span class="puzzle-featured-dot">·</span>
+                    <span class="puzzle-featured-rating">—</span>
+                    <span class="puzzle-featured-dot">·</span>
+                    <span class="puzzle-featured-side">—</span>
+                </div>
+                <button class="puzzle-featured-play" type="button" onclick="playDailyPuzzle()">
+                    Résoudre
+                </button>
+            </div>
+
+            <!-- Section title -->
+            <div class="puzzle-section-header">
+                <h2 class="puzzle-section-title">Autres puzzles</h2>
+                <span id="puzzle-list-count" class="puzzle-section-count"></span>
+            </div>
+
+            <!-- The list -->
+            <div id="puzzle-list" class="puzzle-list">
+                <!-- Items inserted by puzzle.js -->
+            </div>
+
+            <!-- Empty / loading state -->
+            <div id="puzzle-list-empty" class="puzzle-list-empty hidden">
+                <div class="puzzle-list-empty-spinner"></div>
+                <p>Chargement des puzzles…</p>
+            </div>
+
+            <!-- Load more button -->
+            <button id="puzzle-load-more" class="puzzle-load-more hidden" type="button" onclick="loadMorePuzzles()">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 5v14"/>
+                    <path d="M5 12h14"/>
+                </svg>
+                Charger plus de puzzles
+            </button>
+
+            <!-- Offline fallback -->
+            <div id="puzzle-offline" class="puzzle-offline hidden">
+                <p>Impossible de charger les puzzles. Vérifie ta connexion.</p>
+                <button type="button" onclick="loadMorePuzzles()">Réessayer</button>
+            </div>
+        </div>
+    </div>
+    <!-- ==================== END PUZZLE SCREEN ==================== -->
 
     <!-- New Game Modal -->
     <div id="new-game-modal" class="modal hidden">
@@ -885,6 +960,21 @@
             </div>
         </header>
 
+        <!-- Puzzle du jour banner (puzzle mode only) -->
+        <div id="puzzle-banner" class="puzzle-banner hidden">
+            <button class="puzzle-banner-back" type="button" onclick="returnToPuzzleScreen()" title="Retour à la liste">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="15 18 9 12 15 6"></polyline>
+                </svg>
+            </button>
+            <div class="puzzle-banner-body">
+                <div class="puzzle-banner-title">Puzzle du jour</div>
+                <div class="puzzle-banner-sub">Trouve le meilleur coup.</div>
+                <div class="puzzle-banner-chips"></div>
+            </div>
+        </div>
+
         <div id="board-container">
             <div id="captured-opponent" class="captured-pieces"></div>
             <!-- --- EVAL BAR --- -->
@@ -1098,7 +1188,29 @@
         </div>
     </div>
 
+    <!-- Puzzle Success Overlay -->
+    <div id="puzzle-success-overlay" class="modal hidden">
+        <div class="modal-content puzzle-success-content">
+            <h2>Puzzle résolu&nbsp;!</h2>
+            <p class="puzzle-success-sub">Bien joué — tu as trouvé tous les bons coups.</p>
+            <div class="puzzle-success-actions">
+                <button class="puzzle-success-next" type="button" onclick="playNextPuzzle()">
+                    Puzzle suivant
+                </button>
+                <button class="puzzle-success-back" type="button" onclick="returnToPuzzleScreen()">
+                    Retour à la liste
+                </button>
+            </div>
+            <a class="puzzle-success-link" href="https://lichess.org/training" target="_blank" rel="noopener">
+                Voir sur Lichess
+            </a>
+        </div>
+    </div>
+
+    <script src="js/engine.js"></script>
     <script src="script.js"></script>
+    <script src="js/game-history.js"></script>
+    <script src="js/puzzle.js"></script>
 </body>
 
 </html>

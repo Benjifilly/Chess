@@ -1,12 +1,147 @@
-// Service Worker for ChessMate Push Notifications
+// Service Worker for ChessMate — Push Notifications + Offline Cache
+//
+// Strategies:
+//   - HTML (navigation): network-first, fall back to cache so updates ship fast
+//   - Static (CSS/JS/img/pieces/sounds/wasm): cache-first, lazy-fill on miss
+//   - Cross-origin CDNs (fonts, libs): cache-first, lazy-fill
+//
+// Bump CACHE_VERSION to invalidate the cache on a new deploy.
+
+const CACHE_VERSION = 'chessmate-v4';
+const PRECACHE = [
+    './',
+    './index.html',
+    './style.css',
+    './script.js',
+    './config.js',
+    './manifest.json',
+    './images/logo.png',
+    './images/benji.png',
+    './images/benji_robot.png',
+    './images/sanaa.jpg',
+    './sound/capture.mp3',
+    './sound/echec.mp3',
+    './sound/faaah.mp3',
+    './sound/move-self.mp3',
+    './pièces/default/white-king.png',
+    './pièces/default/black-king.png',
+    './pièces/default/white-queen.png',
+    './pièces/default/black-queen.png',
+    './pièces/default/white-rook.png',
+    './pièces/default/black-rook.png',
+    './pièces/default/white-bishop.png',
+    './pièces/default/black-bishop.png',
+    './pièces/default/white-knight.png',
+    './pièces/default/black-knight.png',
+    './pièces/default/white-pawn.png',
+    './pièces/default/black-pawn.png'
+];
+
 self.addEventListener('install', (event) => {
     self.skipWaiting();
+    event.waitUntil(
+        caches.open(CACHE_VERSION).then((cache) => {
+            // Precache the critical shell — failures on individual assets
+            // shouldn't abort the install (e.g. piece set 2 may not ship).
+            return Promise.all(PRECACHE.map((url) =>
+                cache.add(url).catch((err) => {
+                    console.warn('[SW] precache miss:', url, err && err.message);
+                })
+            ));
+        })
+    );
 });
 
 self.addEventListener('activate', (event) => {
-    event.waitUntil(clients.claim());
+    event.waitUntil(
+        Promise.all([
+            // Drop old versions
+            caches.keys().then((keys) =>
+                Promise.all(keys
+                    .filter((k) => k !== CACHE_VERSION)
+                    .map((k) => caches.delete(k))
+                )
+            ),
+            clients.claim()
+        ])
+    );
 });
 
+self.addEventListener('fetch', (event) => {
+    const req = event.request;
+
+    // Only handle GET; let everything else (POST to Supabase, etc.) hit the
+    // network unmodified.
+    if (req.method !== 'GET') return;
+
+    const url = new URL(req.url);
+
+    // Don't intercept Supabase realtime (websocket-ish) or API calls — they
+    // must always hit the network with auth headers.
+    if (url.hostname.endsWith('supabase.co')) return;
+
+    // Skip cross-origin fetches with credentials we shouldn't replay
+    if (req.mode === 'cors' && url.origin !== self.location.origin && !isCachableCDN(url)) {
+        return;
+    }
+
+    // HTML navigation: network-first
+    if (req.mode === 'navigate' || req.headers.get('accept')?.includes('text/html')) {
+        event.respondWith(networkFirst(req));
+        return;
+    }
+
+    // Everything else: cache-first
+    event.respondWith(cacheFirst(req));
+});
+
+function isCachableCDN(url) {
+    return (
+        url.hostname === 'fonts.googleapis.com' ||
+        url.hostname === 'fonts.gstatic.com' ||
+        url.hostname === 'cdn.jsdelivr.net' ||
+        url.hostname === 'cdnjs.cloudflare.com'
+    );
+}
+
+async function networkFirst(req) {
+    const cache = await caches.open(CACHE_VERSION);
+    try {
+        const fresh = await fetch(req);
+        if (fresh && fresh.ok) cache.put(req, fresh.clone());
+        return fresh;
+    } catch (err) {
+        const cached = await cache.match(req);
+        if (cached) return cached;
+        // Final fallback: serve shell so the PWA still opens offline
+        const shell = await cache.match('./index.html');
+        if (shell) return shell;
+        throw err;
+    }
+}
+
+async function cacheFirst(req) {
+    const cache = await caches.open(CACHE_VERSION);
+    const cached = await cache.match(req);
+    if (cached) return cached;
+    try {
+        const fresh = await fetch(req);
+        if (fresh && fresh.ok && fresh.type !== 'opaque') {
+            cache.put(req, fresh.clone());
+        } else if (fresh && fresh.type === 'opaque') {
+            // Opaque (CORS-less third party) — cache anyway, can't inspect
+            cache.put(req, fresh.clone());
+        }
+        return fresh;
+    } catch (err) {
+        // Last-resort: nothing we can do
+        throw err;
+    }
+}
+
+// =================================================================
+// Push notifications (unchanged from previous version)
+// =================================================================
 
 self.addEventListener('push', function (event) {
 
@@ -30,9 +165,9 @@ self.addEventListener('push', function (event) {
 
   const notifOptions = {
     body,
-    icon:             '/Chess/images/logo.png',  
-    badge:            '/Chess/images/logo.png',   
-    tag,                  
+    icon:             '/Chess/images/logo.png',
+    badge:            '/Chess/images/logo.png',
+    tag,
     renotify:         false,
     requireInteraction: true,
     data: { url: destUrl }
