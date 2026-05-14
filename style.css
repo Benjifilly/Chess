@@ -6058,6 +6058,52 @@ footer {
     display: none;
 }
 
+/* Slide-up entrance when opening the puzzle screen from the menu */
+@keyframes puzzleScreenEnter {
+    from {
+        opacity: 0;
+        transform: translateY(18px) scale(0.985);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+/* Slide-down + fade exit when closing back to the menu */
+@keyframes puzzleScreenExit {
+    from {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+    to {
+        opacity: 0;
+        transform: translateY(14px) scale(0.985);
+    }
+}
+
+#puzzle-screen.puzzle-screen-enter {
+    animation: puzzleScreenEnter 0.36s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+#puzzle-screen.puzzle-screen-exit {
+    animation: puzzleScreenExit 0.3s cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+/* The list items stagger in subtly on first render */
+@keyframes puzzleListItemEnter {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.puzzle-list-item {
+    animation: puzzleListItemEnter 0.3s ease-out both;
+}
+
+.puzzle-featured {
+    animation: puzzleListItemEnter 0.32s ease-out 0.04s both;
+}
+
 .puzzle-screen-header {
     flex-shrink: 0;
     display: flex;
@@ -6542,22 +6588,28 @@ footer {
 
 .puzzle-banner-back {
     flex-shrink: 0;
-    width: 32px;
-    height: 32px;
+    width: 38px;
+    height: 38px;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 10px;
-    color: var(--text-color);
+    background: rgba(255, 255, 255, 0.16);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 11px;
+    color: #fff;
     cursor: pointer;
-    transition: background 0.15s ease;
+    transition: background 0.15s ease, transform 0.1s ease;
     -webkit-tap-highlight-color: transparent;
+    opacity: 0.95;
 }
 
 .puzzle-banner-back:hover {
-    background: rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.26);
+    opacity: 1;
+}
+
+.puzzle-banner-back:active {
+    transform: scale(0.93);
 }
 
 .puzzle-banner-body {
@@ -6603,6 +6655,73 @@ footer {
     color: var(--accent);
 }
 
+/* --- Hint button --- */
+.puzzle-banner-hint {
+    flex-shrink: 0;
+    width: 38px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 200, 80, 0.32);
+    border: 1px solid rgba(255, 200, 80, 0.55);
+    border-radius: 11px;
+    color: #fff5d0;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.1s ease, box-shadow 0.2s ease;
+    -webkit-tap-highlight-color: transparent;
+    box-shadow: 0 2px 8px rgba(255, 200, 80, 0.18);
+}
+
+.puzzle-banner-hint:hover {
+    background: rgba(255, 200, 80, 0.45);
+    box-shadow: 0 3px 12px rgba(255, 200, 80, 0.3);
+}
+
+.puzzle-banner-hint:active {
+    transform: scale(0.93);
+}
+
+[data-theme="light"] .puzzle-banner-hint,
+[data-theme="noir"] .puzzle-banner-hint {
+    background: rgba(230, 165, 0, 0.32);
+    border-color: rgba(230, 165, 0, 0.5);
+    color: #5a3800;
+}
+
+/* --- Hint flash on the board (source / target square) --- */
+@keyframes puzzleHintPulse {
+    0%, 100% {
+        box-shadow: inset 0 0 0 4px rgba(255, 200, 80, 0);
+        background-color: rgba(255, 200, 80, 0);
+    }
+    35% {
+        box-shadow: inset 0 0 0 4px rgba(255, 200, 80, 0.9);
+        background-color: rgba(255, 200, 80, 0.35);
+    }
+}
+
+@keyframes puzzleHintTargetPulse {
+    0%, 100% {
+        box-shadow: inset 0 0 0 4px rgba(136, 176, 75, 0);
+        background-color: rgba(136, 176, 75, 0);
+    }
+    35% {
+        box-shadow: inset 0 0 0 4px rgba(136, 176, 75, 0.9);
+        background-color: rgba(136, 176, 75, 0.35);
+    }
+}
+
+.square.puzzle-hint-source {
+    animation: puzzleHintPulse 1.8s ease-out;
+    position: relative;
+}
+
+.square.puzzle-hint-target {
+    animation: puzzleHintTargetPulse 1.8s ease-out;
+    position: relative;
+}
+
 [data-theme="light"] .puzzle-banner-chip,
 [data-theme="noir"] .puzzle-banner-chip {
     background: rgba(0, 0, 0, 0.05);
@@ -6616,17 +6735,17 @@ footer {
 }
 
 /* --- Shake animation when player plays a wrong puzzle move --- */
+/* Subtle nudge — the visual feedback comes mostly from the banner colour
+ * change. Heavy shaking distracts more than it informs. */
 @keyframes puzzleShake {
     0%, 100% { transform: translateX(0); }
-    15% { transform: translateX(-10px); }
-    30% { transform: translateX(9px); }
-    45% { transform: translateX(-7px); }
-    60% { transform: translateX(5px); }
-    75% { transform: translateX(-3px); }
+    25%      { transform: translateX(-4px); }
+    50%      { transform: translateX(3px); }
+    75%      { transform: translateX(-2px); }
 }
 
 #board.puzzle-shake {
-    animation: puzzleShake 0.5s ease;
+    animation: puzzleShake 0.32s ease-out;
 }
 
 /* --- Success overlay --- */

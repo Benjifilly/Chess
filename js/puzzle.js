@@ -25,9 +25,13 @@
 const PUZZLE_DAILY_URL = 'https://lichess.org/api/puzzle/daily';
 const PUZZLE_NEXT_URL = 'https://lichess.org/api/puzzle/next';
 
-const STORAGE_DAILY_KEY = 'puzzle_daily_v2';   // per-day cache for the daily
-const STORAGE_POOL_KEY = 'puzzle_pool_v2';     // list of fetched puzzles
-const STORAGE_SOLVED_KEY = 'puzzle_solved_v2'; // array of solved ids
+// NOTE: storage keys are versioned. Bump these whenever the puzzle data
+// shape changes — e.g. earlier builds wrote /next puzzles with FENs that
+// were off-by-one (initialPly vs initialPly+1), and those entries would
+// otherwise stick around in localStorage and silently confuse the player.
+const STORAGE_DAILY_KEY = 'puzzle_daily_v3';
+const STORAGE_POOL_KEY = 'puzzle_pool_v3';
+const STORAGE_SOLVED_KEY = 'puzzle_solved_v2';
 const POOL_MAX = 50;                            // hard cap to avoid bloat
 const INITIAL_LOAD = 5;
 const LOAD_MORE_COUNT = 5;
@@ -50,12 +54,36 @@ function todayKey() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+// Cached entries can outlive code changes. Validate that the stored fen
+// matches its first solution move (i.e. solution[0] is a legal move from
+// that fen). If not, the entry is from an older buggy build (off-by-one
+// FEN derivation) and we drop it.
+function isPuzzleCacheValid(data) {
+    if (!data || !data.puzzle) return false;
+    const p = data.puzzle;
+    if (!p.fen || !Array.isArray(p.solution) || p.solution.length === 0) return false;
+    try {
+        const g = new Chess();
+        if (!g.load(p.fen)) return false;
+        const uci = p.solution[0];
+        const m = g.move({
+            from: uci.slice(0, 2),
+            to: uci.slice(2, 4),
+            promotion: uci.length >= 5 ? uci[4] : 'q'
+        });
+        return !!m;
+    } catch (e) {
+        return false;
+    }
+}
+
 function loadFromStorage() {
     try {
         const daily = localStorage.getItem(STORAGE_DAILY_KEY);
         if (daily) {
             const entry = JSON.parse(daily);
-            if (entry && entry.date === todayKey() && entry.puzzle) {
+            if (entry && entry.date === todayKey() && entry.puzzle &&
+                isPuzzleCacheValid(entry.puzzle)) {
                 dailyPuzzle = entry.puzzle;
             }
         }
@@ -65,7 +93,9 @@ function loadFromStorage() {
         const pool = localStorage.getItem(STORAGE_POOL_KEY);
         if (pool) {
             const arr = JSON.parse(pool);
-            if (Array.isArray(arr)) puzzlePool = arr;
+            if (Array.isArray(arr)) {
+                puzzlePool = arr.filter(isPuzzleCacheValid);
+            }
         }
     } catch (e) { /* ignore */ }
 
@@ -105,13 +135,76 @@ function saveSolved() {
 
 // --- Lichess fetch helpers --------------------------------------------------
 
+// Lichess returns puzzles in two shapes:
+//   /daily : puzzle.fen + puzzle.lastMove ARE present (ready to load).
+//   /next  : only puzzle.initialPly is present — the position must be derived
+//            by replaying game.pgn up to that ply.
+// This helper unifies them: after it runs, puzzle.fen + puzzle.lastMove exist,
+// so the rest of the code is shape-agnostic.
+function normalizePuzzleData(data) {
+    if (!data || !data.puzzle) return null;
+    const p = data.puzzle;
+    if (!Array.isArray(p.solution) || p.solution.length === 0) return null;
+
+    // Daily-style payload — already complete.
+    if (p.fen) return data;
+
+    // /next-style payload — replay the game PGN to ply N.
+    if (!data.game || typeof data.game.pgn !== 'string') return null;
+    if (typeof p.initialPly !== 'number' || p.initialPly < 0) return null;
+
+    try {
+        const fullGame = new Chess();
+        if (!fullGame.load_pgn(data.game.pgn, { sloppy: true })) {
+            console.warn('Puzzle: load_pgn failed for id', p.id);
+            return null;
+        }
+        const history = fullGame.history({ verbose: true });
+
+        // Empirically verified against /api/puzzle/daily (which returns the
+        // FEN explicitly): the puzzle position is the position AFTER playing
+        // (initialPly + 1) half-moves. `initialPly` itself is the index of
+        // the "setup" move that lastMove refers to.
+        const replayCount = p.initialPly + 1;
+        if (replayCount > history.length) {
+            console.warn('Puzzle: initialPly out of range', p.initialPly, 'vs', history.length);
+            return null;
+        }
+
+        const replay = new Chess();
+        let lastMoveObj = null;
+        for (let i = 0; i < replayCount; i++) {
+            const h = history[i];
+            lastMoveObj = replay.move({
+                from: h.from,
+                to: h.to,
+                promotion: h.promotion
+            });
+            if (!lastMoveObj) {
+                console.warn('Puzzle: replay failed at ply', i, 'for id', p.id);
+                return null;
+            }
+        }
+
+        p.fen = replay.fen();
+        if (lastMoveObj) {
+            p.lastMove = lastMoveObj.from + lastMoveObj.to + (lastMoveObj.promotion || '');
+        }
+        return data;
+    } catch (e) {
+        console.warn('Puzzle: normalization error', e);
+        return null;
+    }
+}
+
 async function fetchDailyPuzzle() {
     if (dailyPuzzle) return dailyPuzzle;
     try {
         const res = await fetch(PUZZLE_DAILY_URL, { cache: 'no-store' });
         if (!res.ok) throw new Error('HTTP ' + res.status);
-        const data = await res.json();
-        if (!data || !data.puzzle || !data.puzzle.fen) throw new Error('Invalid payload');
+        const raw = await res.json();
+        const data = normalizePuzzleData(raw);
+        if (!data) throw new Error('Daily payload invalid');
         dailyPuzzle = data;
         saveDaily();
         return data;
@@ -125,8 +218,9 @@ async function fetchOnePuzzle() {
     try {
         const res = await fetch(PUZZLE_NEXT_URL, { cache: 'no-store' });
         if (!res.ok) throw new Error('HTTP ' + res.status);
-        const data = await res.json();
-        if (!data || !data.puzzle || !data.game || !data.game.pgn) throw new Error('Invalid payload');
+        const raw = await res.json();
+        const data = normalizePuzzleData(raw);
+        if (!data) throw new Error('Next payload invalid');
         return data;
     } catch (e) {
         console.warn('Puzzle fetch failed:', e);
@@ -190,26 +284,59 @@ function openPuzzleScreen() {
     const gameScreen = document.getElementById('game-screen');
     if (!puzzleScreen) return;
 
-    if (mainMenu) mainMenu.classList.add('hidden');
     if (gameScreen) gameScreen.classList.add('hidden');
-    puzzleScreen.classList.remove('hidden');
 
-    chainModeEnabled = false;
+    // Fade the menu out first (matches the in-screen vibe), then reveal the
+    // puzzle screen with a subtle slide-up.
+    if (mainMenu && !mainMenu.classList.contains('hidden')) {
+        mainMenu.classList.add('menu-exit');
+        setTimeout(() => {
+            mainMenu.classList.add('hidden');
+            mainMenu.classList.remove('menu-exit');
+            revealPuzzleScreen();
+        }, 280);
+    } else {
+        revealPuzzleScreen();
+    }
 
-    // Kick off async work; render whatever we already have first.
-    renderPuzzleScreen();
-    ensurePuzzlesLoaded();
+    function revealPuzzleScreen() {
+        puzzleScreen.classList.remove('hidden', 'puzzle-screen-exit');
+        // Force reflow so the entrance animation always re-plays.
+        void puzzleScreen.offsetWidth;
+        puzzleScreen.classList.add('puzzle-screen-enter');
+        setTimeout(() => puzzleScreen.classList.remove('puzzle-screen-enter'), 400);
+
+        chainModeEnabled = false;
+        renderPuzzleScreen();
+        ensurePuzzlesLoaded();
+    }
 }
 
 function closePuzzleScreen() {
     const mainMenu = document.getElementById('main-menu');
     const puzzleScreen = document.getElementById('puzzle-screen');
-    if (puzzleScreen) puzzleScreen.classList.add('hidden');
-    if (typeof showMainMenu === 'function') {
-        showMainMenu();
-    } else if (mainMenu) {
-        mainMenu.classList.remove('hidden');
+    if (!puzzleScreen) {
+        if (typeof showMainMenu === 'function') showMainMenu();
+        return;
     }
+
+    puzzleScreen.classList.remove('puzzle-screen-enter');
+    puzzleScreen.classList.add('puzzle-screen-exit');
+
+    setTimeout(() => {
+        puzzleScreen.classList.add('hidden');
+        puzzleScreen.classList.remove('puzzle-screen-exit');
+        if (typeof showMainMenu === 'function') {
+            showMainMenu();
+            if (mainMenu) {
+                mainMenu.classList.remove('hidden');
+                mainMenu.classList.add('menu-enter');
+                setTimeout(() => mainMenu.classList.remove('menu-enter'), 500);
+            }
+        } else if (mainMenu) {
+            mainMenu.classList.remove('hidden');
+        }
+    }, 280);
 }
 
 async function ensurePuzzlesLoaded() {
@@ -437,6 +564,9 @@ function startPuzzleData(data) {
     puzzleSolutionIndex = 0;
     puzzleAwaitingPlayer = false;
     puzzleFailed = false;
+    lastHintIndex = -1;
+    lastHintLevel = 0;
+    lastHintAt = 0;
 
     gameMode = 'puzzle';
     timeControl = 0;
@@ -648,6 +778,47 @@ function playPuzzleOpponentReply() {
     updatePuzzleBanner('start');
 }
 
+// Briefly highlight the source square of the expected next solution move.
+// Two-stage hint: first call highlights the source piece; a second call (within
+// 5s, on the same expected move) reveals the destination too.
+let lastHintIndex = -1;
+let lastHintLevel = 0;
+let lastHintAt = 0;
+
+function showPuzzleHint() {
+    if (gameMode !== 'puzzle' || !activePuzzle) return;
+    if (!puzzleAwaitingPlayer || puzzleFailed) return;
+
+    const expected = (activePuzzle.puzzle.solution || [])[puzzleSolutionIndex];
+    if (!expected || expected.length < 4) return;
+
+    const from = expected.slice(0, 2);
+    const to = expected.slice(2, 4);
+
+    // Two-stage hint: same move + recent call → escalate to revealing target.
+    const now = Date.now();
+    const samePuzzleStep = (lastHintIndex === puzzleSolutionIndex) && (now - lastHintAt < 6000);
+    const level = samePuzzleStep ? Math.min(lastHintLevel + 1, 2) : 1;
+    lastHintIndex = puzzleSolutionIndex;
+    lastHintLevel = level;
+    lastHintAt = now;
+
+    flashSquare(from, 'hint-source');
+    if (level >= 2) {
+        flashSquare(to, 'hint-target');
+    }
+}
+
+function flashSquare(square, kind) {
+    const sq = document.querySelector(`.square[data-square="${square}"]`);
+    if (!sq) return;
+    const cls = kind === 'hint-target' ? 'puzzle-hint-target' : 'puzzle-hint-source';
+    sq.classList.remove(cls);
+    void sq.offsetWidth;
+    sq.classList.add(cls);
+    setTimeout(() => sq.classList.remove(cls), 1800);
+}
+
 function shakeBoard() {
     const board = document.getElementById('board');
     if (!board) return;
@@ -756,3 +927,4 @@ window.closePuzzleSuccess = closePuzzleSuccess;
 window.updatePuzzleBanner = updatePuzzleBanner;
 window.isPuzzleAwaitingPlayer = function () { return puzzleAwaitingPlayer; };
 window.isPuzzleChainMode = function () { return chainModeEnabled; };
+window.showPuzzleHint = showPuzzleHint;

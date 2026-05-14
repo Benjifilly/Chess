@@ -7,7 +7,7 @@
 //
 // Bump CACHE_VERSION to invalidate the cache on a new deploy.
 
-const CACHE_VERSION = 'chessmate-v4';
+const CACHE_VERSION = 'chessmate-v6';
 const PRECACHE = [
     './',
     './index.html',
@@ -36,6 +36,15 @@ const PRECACHE = [
     './pièces/default/white-pawn.png',
     './pièces/default/black-pawn.png'
 ];
+
+// Allow the page to ask the new SW to take over immediately. The page sends
+// `{type:'SKIP_WAITING'}` once it detects an installed update, then it
+// reloads on `controllerchange`. This is what makes redeploys feel instant.
+self.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'SKIP_WAITING') {
+        self.skipWaiting();
+    }
+});
 
 self.addEventListener('install', (event) => {
     self.skipWaiting();

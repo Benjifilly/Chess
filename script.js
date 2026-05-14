@@ -3347,21 +3347,55 @@ document.getElementById('reset-btn').addEventListener('click', () => {
 
 // Service Worker: cache-first for static assets + push notifications.
 // The SW takes over fetch on the second load, so the app boots offline.
+//
+// Auto-reload on update: when a fresh sw.js is detected, we tell the waiting
+// SW to skipWaiting; once it claims this client (controllerchange fires from
+// the old controller to the new one), we reload so the user sees the new
+// JS/CSS without having to unregister anything by hand.
 if ('serviceWorker' in navigator) {
+    // Remember whether a SW was already controlling this page BEFORE
+    // registration; that's the signal that "controllerchange" later means an
+    // update (not the very first install).
+    const hadControllerAtLoad = !!navigator.serviceWorker.controller;
+    let reloadingForSWUpdate = false;
+
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!hadControllerAtLoad) return; // first install — don't reload
+        if (reloadingForSWUpdate) return;
+        reloadingForSWUpdate = true;
+        console.log('[SW] new version active — reloading page');
+        window.location.reload();
+    });
+
     window.addEventListener('load', () => {
         navigator.serviceWorker.register('sw.js')
             .then((reg) => {
                 console.log('[SW] registered, scope:', reg.scope);
-                // Listen for an updated SW waiting to activate
-                if (reg.waiting) console.log('[SW] update waiting');
+
+                // If an update is already waiting, kick it now.
+                if (reg.waiting && navigator.serviceWorker.controller) {
+                    reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+                }
+
                 reg.addEventListener('updatefound', () => {
                     const newSW = reg.installing;
                     if (!newSW) return;
                     newSW.addEventListener('statechange', () => {
                         if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
-                            console.log('[SW] new version installed — will activate on next load');
+                            // A new SW just finished installing while an old one
+                            // is still controlling. Promote it immediately.
+                            console.log('[SW] new version installed — promoting');
+                            newSW.postMessage({ type: 'SKIP_WAITING' });
                         }
                     });
+                });
+
+                // Check for updates every time the tab gains focus, so users on
+                // long-lived tabs pick up redeploys without a manual reload.
+                document.addEventListener('visibilitychange', () => {
+                    if (document.visibilityState === 'visible') {
+                        reg.update().catch(() => {});
+                    }
                 });
             })
             .catch((err) => console.warn('[SW] registration failed:', err));
