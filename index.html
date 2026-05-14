@@ -350,11 +350,23 @@
             <div class="puzzle-screen-spacer"></div>
         </header>
 
+        <div class="puzzle-stats-bar">
+            <div class="puzzle-stat">
+                <span class="puzzle-stat-value" id="puzzle-stat-solved">0</span>
+                <span class="puzzle-stat-label">Résolus</span>
+            </div>
+            <div class="puzzle-stat-divider"></div>
+            <div class="puzzle-stat">
+                <span class="puzzle-stat-value" id="puzzle-stat-pool">0</span>
+                <span class="puzzle-stat-label">Disponibles</span>
+            </div>
+        </div>
+
         <div class="puzzle-screen-body">
             <!-- Daily puzzle featured -->
             <div id="puzzle-featured" class="puzzle-featured hidden">
                 <div class="puzzle-featured-header">
-                    <span class="puzzle-featured-label">Puzzle du jour</span>
+                    <span class="puzzle-featured-label">⭐ Puzzle du jour</span>
                     <span class="puzzle-featured-solved hidden">Résolu</span>
                 </div>
                 <div class="puzzle-featured-meta">
@@ -963,7 +975,7 @@
         <!-- Puzzle du jour banner (puzzle mode only) -->
         <div id="puzzle-banner" class="puzzle-banner hidden">
             <button class="puzzle-banner-back" type="button" onclick="returnToPuzzleScreen()" title="Retour à la liste">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
                     stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="15 18 9 12 15 6"></polyline>
                 </svg>
@@ -975,7 +987,7 @@
             </div>
             <button id="puzzle-banner-hint" class="puzzle-banner-hint" type="button"
                     onclick="showPuzzleHint()" title="Indice">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                     stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M9 18h6"/>
                     <path d="M10 22h4"/>

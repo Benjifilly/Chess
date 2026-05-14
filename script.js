@@ -3407,13 +3407,16 @@ document.addEventListener('visibilitychange', async () => {
     if (document.visibilityState === 'visible') {
         console.log('App is back in foreground (mode=' + gameMode + ')');
 
+        // --- Puzzle mode: preserve local state, skip Supabase sync ---
+        if (gameMode === 'puzzle') {
+            return;
+        }
+
         // --- Solo mode: preserve local state, skip Supabase sync ---
         if (gameMode === 'solo') {
-            // Re-render board and timers to reflect any elapsed time
             renderBoard();
-            updateStatus(false); // Don't re-show game over modal on return
+            updateStatus(false);
             startTimer();
-            // If it's the bot's turn and no search is in progress, resume
             if (game.turn() !== myColor && !game.game_over() && !isBotThinking) {
                 makeBotMove();
             }

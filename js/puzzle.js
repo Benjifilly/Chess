@@ -411,6 +411,11 @@ function showLoadMore(show) {
 function renderPuzzleScreen() {
     renderFeatured();
     renderPuzzleList();
+
+    const solvedEl = document.getElementById('puzzle-stat-solved');
+    const poolEl = document.getElementById('puzzle-stat-pool');
+    if (solvedEl) solvedEl.textContent = solvedIds.size;
+    if (poolEl) poolEl.textContent = puzzlePool.filter(p => !solvedIds.has(p.puzzle.id)).length;
 }
 
 function renderFeatured() {
@@ -581,8 +586,8 @@ function startPuzzleData(data) {
         tempGame.load_pgn(g.pgn);
         const moves = tempGame.history({ verbose: true });
         
-        // Replay up to initialPly
-        for (let i = 0; i < p.initialPly; i++) {
+        const replayCount = p.initialPly + 1;
+        for (let i = 0; i < replayCount; i++) {
             if (moves[i]) game.move(moves[i]);
         }
     } else if (p.fen) {

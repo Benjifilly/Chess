@@ -29,6 +29,8 @@ async function saveGameToHistory(result, reason) {
         return;
     }
 
+    if (gameMode === 'puzzle') return;
+
     // For duo mode, only the WHITE player saves to avoid duplicate entries
     if (gameMode === 'duo' && myColor !== 'w') {
         console.log('saveGameToHistory: duo mode, not white player — skipping (white player saves)');
